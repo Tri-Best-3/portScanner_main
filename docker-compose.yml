@@ -1,0 +1,104 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: mini-asm-backend
+    environment:
+      BACKEND_HOST: 0.0.0.0
+      BACKEND_PORT: 8000
+      BACKEND_SQLITE_PATH: /app/backend_data/app.db
+    ports:
+      - "8000:8000"
+    volumes:
+      - backend-data:/app/backend_data
+    depends_on:
+      - db
+    networks:
+      lab-net:
+        ipv4_address: 172.28.0.2
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: dashboard/Dockerfile
+    container_name: mini-asm-dashboard
+    environment:
+      DASHBOARD_BACKEND_URL: http://backend:8000
+    ports:
+      - "8501:8501"
+    depends_on:
+      - backend
+    networks:
+      lab-net:
+        ipv4_address: 172.28.0.3
+
+  db:
+    image: postgres:16-alpine
+    container_name: mini-asm-db
+    environment:
+      POSTGRES_DB: mini_asm
+      POSTGRES_USER: mini_asm
+      POSTGRES_PASSWORD: mini_asm
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      lab-net:
+        ipv4_address: 172.28.0.4
+
+  redis-vuln:
+    image: redis:7-alpine
+    container_name: mini-asm-redis-target
+    ports:
+      - "127.0.0.1:6379:6379"
+    networks:
+      lab-net:
+        ipv4_address: 172.28.0.20
+
+  web-target:
+    image: nginx:1.27-alpine
+    container_name: mini-asm-web-target
+    ports:
+      - "8081:80"
+    networks:
+      lab-net:
+        ipv4_address: 172.28.0.10
+
+  samba-vuln:
+    image: alpine:3.20
+    container_name: mini-asm-samba-target
+    command: ["sh", "-c", "while true; do sleep 3600; done"]
+    networks:
+      lab-net:
+        ipv4_address: 172.28.0.30
+
+  ssh-target:
+    image: alpine:3.20
+    container_name: mini-asm-ssh-target
+    command: ["sh", "-c", "while true; do sleep 3600; done"]
+    networks:
+      lab-net:
+        ipv4_address: 172.28.0.40
+
+  other-service:
+    image: hashicorp/http-echo:1.0.0
+    container_name: mini-asm-other-target
+    command: ["-text=other-service"]
+    ports:
+      - "5678:5678"
+    networks:
+      lab-net:
+        ipv4_address: 172.28.0.50
+
+volumes:
+  backend-data:
+  postgres-data:
+
+networks:
+  lab-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
