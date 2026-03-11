@@ -142,6 +142,11 @@ def build_risk_report(
         grade=grade,
     )
 
+    # # JSON 출력용 - 불필요한 정보 제거
+    # narrative_ready_output = dict(narrative_ready)
+    # narrative_ready_output.pop("top_risk_findings", None)
+    # narrative_ready_output.pop("llm_ready_prompt_input", None)
+
     payload = {
         "report_type": "combination_risk_report",
         "generated_at": _utc_now_iso(),
@@ -175,7 +180,7 @@ def build_risk_report(
         "findings_breakdown": finding_breakdown,
         "combination_breakdown": combo_breakdown,
         "host_context": host_density,
-        "narrative_ready": narrative_ready,
+        # "narrative_ready": narrative_ready_output,
     }
 
     payload["narrative"] = _build_narrative_section(

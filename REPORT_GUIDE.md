@@ -21,6 +21,108 @@
 ---
 
 ## 2. 결과물 JSON
+```
+{
+  "report_type": "string",
+  "generated_at": "string",
+  "scan_id": "string",
+  "target": {
+    "input_value": "string",
+    "resolved_ip": "string",
+    "scope_tag": "string | null"
+  },
+  "source_contract": {
+    "analysis_version": "string",
+    "uses_existing_analyzer": "boolean",
+    "uses_existing_risk_engine": "boolean"
+  },
+  "input_snapshot": {   # 현재 스캔 요약
+    "open_ports": ["number"],
+    "services": ["string"],
+    "port_services": [
+      {
+        "port": "number",
+        "protocol": "string",
+        "normalized_service": "string",
+        "service": {
+          "name": "string | null",
+          "product": "string | null",
+          "version": "string | null",
+          "extrainfo": "string | null"
+        }
+      }
+    ]
+  },
+  "analysis_reference": {   # 기존 분석 결과
+    "original_score": "number",
+    "original_grade": "string",
+    "drift": {
+      "new_ports": ["number"],
+      "closed_ports": ["number"]
+    }
+  },
+  "scoring": {  # 조합 스코어링 (최종 점수)
+    "base_score": "number",
+    "combo_bonus_score": "number",
+    "host_density_bonus_score": "number",
+    "final_score": "number",
+    "grade": "string"
+  },
+  "findings_breakdown": [   # 개별 취약점
+    {
+      "port": "number",
+      "service_name": "string",
+      "title": "string",
+      "severity": "string",
+      "kind": "string",
+      "cve_id": "string | null",
+      "kev": "boolean",
+      "epss": "number | null",
+      "match_confidence": "number",
+      "score_breakdown": {
+        "severity_score": "number",
+        "kev_bonus": "number",
+        "epss_bonus": "number",
+        "total": "number"
+      },
+      "narrative_hint": "string"
+    }
+  ],
+  "combination_breakdown": [    # 조합이 위험한 이유 정보 
+    {
+      "combo_id": "string",
+      "label": "string",
+      "services": ["string"],
+      "ports": ["number"],
+      "bonus": "number",
+      "reason_code": "string",
+      "evidence": ["string"],
+      "narrative_hint": "string"
+    }
+  ],
+  "host_context": {     # 한 호스트에 붙은 민감 서비스 정보 
+    "resolved_ip": "string",
+    "service_count": "number",
+    "services": ["string"],
+    "bonus": "number",
+    "reason_code": "string",
+    "narrative_hint": "string"
+  },
+  "narrative": {    # 자연어 처리 결과 
+    "backend": "string",
+    "model": "string | null",
+    "language": "string",
+    "generated": "boolean",
+    "summary": "string",
+    "risk_explanation": ["string"],
+    "recommended_action": ["string"],
+    "fallback_reason": "string | null"
+  }
+}
+
+```
+
+
 
 `report_sample.json` 확인
 

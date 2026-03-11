@@ -1,6 +1,6 @@
 {
   "report_type": "combination_risk_report",
-  "generated_at": "2026-03-11T19:32:13.148578+00:00",
+  "generated_at": "2026-03-11T20:11:47.077393+00:00",
   "scan_id": "scan-demo-001",
   "target": {
     "input_value": "demo.lab.local",
@@ -184,173 +184,36 @@
     "reason_code": "three_or_more_sensitive_services_on_same_host",
     "narrative_hint": "Multiple sensitive services are concentrated on the same host, which increases operational exposure."
   },
-  "narrative_ready": {
-    "priority": "critical",
-    "summary_points": [
-      "Target 172.30.0.12 exposes 3 open ports.",
-      "Detected services: elasticsearch, redis, ssh.",
-      "Final combination risk score is 100 (critical)."
-    ],
-    "reason_codes": [
-      "service_chain_exposure",
-      "data_service_plus_remote_access"
-    ],
-    "attack_path_hints": [
+  "narrative": {
+    "backend": "template",
+    "model": null,
+    "language": "ko",
+    "generated": false,
+    "summary": "대상 172.30.0.12는 elasticsearch, redis, ssh 서비스가 노출되어 있으며, 특히 redis + ssh, elasticsearch + ssh 조합으로 인해 조합 위험 점수 100점(critical)으로 평가되었습니다.",
+    "risk_explanation": [
+      "Redis Unauthorized Access는 포트 6379에서 확인되었고, 후가공 점수 55점으로 반영되었습니다.",
+      "Elasticsearch Unauthorized Access Risk는 포트 9200에서 확인되었고, 후가공 점수 55점으로 반영되었습니다.",
       "The redis + ssh combination can increase the chance of chained access on the same host.",
       "The elasticsearch + ssh combination exposes a data service together with remote administration access."
     ],
-    "top_risk_findings": [
-      {
-        "port": 6379,
-        "service_name": "redis",
-        "title": "Redis Unauthorized Access",
-        "severity": "critical",
-        "kind": "misconfiguration",
-        "cve_id": null,
-        "kev": false,
-        "epss": null,
-        "match_confidence": 0.95,
-        "score_breakdown": {
-          "severity_score": 55,
-          "kev_bonus": 0,
-          "epss_bonus": 0,
-          "total": 55
-        },
-        "narrative_hint": "Redis Unauthorized Access indicates direct service exposure or unsafe configuration on port 6379."
-      },
-      {
-        "port": 9200,
-        "service_name": "http",
-        "title": "Elasticsearch Unauthorized Access Risk",
-        "severity": "critical",
-        "kind": "misconfiguration",
-        "cve_id": null,
-        "kev": false,
-        "epss": null,
-        "match_confidence": 0.92,
-        "score_breakdown": {
-          "severity_score": 55,
-          "kev_bonus": 0,
-          "epss_bonus": 0,
-          "total": 55
-        },
-        "narrative_hint": "Elasticsearch Unauthorized Access Risk indicates direct service exposure or unsafe configuration on port 9200."
-      },
-      {
-        "port": 22,
-        "service_name": "ssh",
-        "title": "SSH Service Exposure",
-        "severity": "medium",
-        "kind": "misconfiguration",
-        "cve_id": null,
-        "kev": false,
-        "epss": null,
-        "match_confidence": 0.9,
-        "score_breakdown": {
-          "severity_score": 15,
-          "kev_bonus": 0,
-          "epss_bonus": 0,
-          "total": 15
-        },
-        "narrative_hint": "SSH Service Exposure indicates direct service exposure or unsafe configuration on port 22."
-      }
-    ],
-    "llm_ready_prompt_input": {
-      "instruction": "Use only the supplied facts. Explain why the current service combination is risky, what exposure paths are plausible, what should be prioritized first, and include any port-open/port-closed changes when drift information is present. Do not invent CVEs or attack steps that are not present in the facts.",
-      "facts": {
-        "target": {
-          "input_value": "demo.lab.local",
-          "resolved_ip": "172.30.0.12"
-        },
-        "open_ports": [
-          22,
-          6379,
-          9200
-        ],
-        "services": [
-          "elasticsearch",
-          "redis",
-          "ssh"
-        ],
-        "drift": {
-          "new_ports": [],
-          "closed_ports": []
-        },
-        "top_findings": [
-          {
-            "title": "Redis Unauthorized Access",
-            "port": 6379,
-            "severity": "critical",
-            "score": 55,
-            "cve_id": null,
-            "kev": false,
-            "epss": null
-          },
-          {
-            "title": "Elasticsearch Unauthorized Access Risk",
-            "port": 9200,
-            "severity": "critical",
-            "score": 55,
-            "cve_id": null,
-            "kev": false,
-            "epss": null
-          },
-          {
-            "title": "SSH Service Exposure",
-            "port": 22,
-            "severity": "medium",
-            "score": 15,
-            "cve_id": null,
-            "kev": false,
-            "epss": null
-          }
-        ],
-        "matched_combinations": [
-          {
-            "services": [
-              "redis",
-              "ssh"
-            ],
-            "ports": [
-              22,
-              6379
-            ],
-            "reason_code": "service_chain_exposure",
-            "bonus": 12
-          },
-          {
-            "services": [
-              "elasticsearch",
-              "ssh"
-            ],
-            "ports": [
-              22,
-              9200
-            ],
-            "reason_code": "data_service_plus_remote_access",
-            "bonus": 10
-          }
-        ],
-        "final_score": 100,
-        "final_grade": "critical"
-      }
-    }
-  },
-  "narrative": {
-    "backend": "gemini",
-    "model": "gemini-2.5-flash",
-    "language": "ko",
-    "generated": true,
-    "summary": "demo.lab.local 서버는 Redis 및 Elasticsearch와 같은 중요한 데이터 서비스가 SSH와 함께 노출되어 있어 무단 접근 및 데이터 유출 위험이 매우 높습니다.",
-    "risk_explanation": [
-      "Redis (6379)와 Elasticsearch (9200) 같은 중요한 데이터 서비스가 원격 접근 서비스인 SSH (22)와 함께 노출되어 있습니다.",
-      "이러한 조합은 공격자가 SSH를 통해 시스템에 접근한 후, 인증되지 않은 Redis 또는 Elasticsearch 인스턴스를 악용하여 민감한 데이터에 접근하거나 시스템을 제어할 수 있는 경로를 제공합니다.",
-      "특히 Redis와 Elasticsearch는 무단 접근 위험이 'critical'로 평가되어 데이터 유출 및 서비스 중단의 직접적인 위협이 됩니다."
-    ],
     "recommended_action": [
-      "Redis 및 Elasticsearch 서비스에 대한 접근 제어를 즉시 강화하고, 불필요한 외부 노출을 제한하십시오.",
-      "SSH 서비스에 대한 강력한 인증 정책(예: 키 기반 인증, 2FA)을 적용하고, 불필요한 경우 외부 접근을 제한하십시오.",
-      "모든 서비스에 대해 최신 보안 패치를 적용하고, 정기적인 취약점 스캔을 수행하여 추가적인 위험을 식별하십시오."
-    ]
+      "Redis 외부 노출을 차단하고 인증 설정 여부를 우선 점검하세요.",
+      "SSH는 허용 대역을 제한하고 불필요한 외부 노출을 줄이세요.",
+      "점수가 높은 노출 항목부터 우선순위를 정해 순차적으로 조치하세요."
+    ],
+    "template_basis": {
+      "target": "172.30.0.12",
+      "services": [
+        "elasticsearch",
+        "redis",
+        "ssh"
+      ],
+      "top_findings": [
+        "Redis Unauthorized Access",
+        "Elasticsearch Unauthorized Access Risk"
+      ],
+      "matched_combo_count": 2
+    },
+    "fallback_reason": "'narrative_ready'"
   }
 }
