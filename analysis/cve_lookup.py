@@ -38,6 +38,14 @@ _OFFLINE_CATALOG: list[dict[str, Any]] = [
         "severity": "critical",
         "match_confidence": 0.96,
     },
+    {
+        "product": "samba",
+        "version_prefix": "4.15",
+        "title": "Samba vfs_fruit heap out-of-bounds vulnerability",
+        "cve_id": "CVE-2021-44142",
+        "severity": "critical",
+        "match_confidence": 0.9,
+    },
 ]
 
 
@@ -83,8 +91,11 @@ def _lookup_cves_offline(service: ServiceInfo) -> list[VulnerabilityFinding]:
         if product != entry["product"]:
             continue
         prefix = entry.get("version_prefix", "")
-        if prefix and version and not version.startswith(prefix):
-            continue
+        if prefix:
+            if not version:
+                continue
+            if not version.startswith(prefix):
+                continue
         findings.append(
             VulnerabilityFinding(
                 title=entry["title"],
