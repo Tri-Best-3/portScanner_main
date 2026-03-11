@@ -140,3 +140,21 @@ def test_live_cve_lookup_falls_back_to_offline_catalog() -> None:
 
     assert result["analysis"]["risk_summary"]["score"] >= 35
     assert result["analysis"]["vulnerabilities"][0]["cve_id"] == "CVE-2021-23017"
+
+
+def test_offline_cve_lookup_requires_version_for_version_scoped_entries() -> None:
+    findings = lookup_cves(
+        service={"name": "http", "product": "nginx", "version": None},
+        config=NvdLookupConfig(use_live_api=False),
+    )
+
+    assert findings == []
+
+
+def test_offline_cve_lookup_supports_samba_catalog_entry() -> None:
+    findings = lookup_cves(
+        service={"name": "microsoft-ds", "product": "Samba", "version": "4.15.0"},
+        config=NvdLookupConfig(use_live_api=False),
+    )
+
+    assert any(item.cve_id == "CVE-2021-44142" for item in findings)
