@@ -140,19 +140,19 @@ with st.expander("🚀 스캔 실행", expanded=True):
         if not targets_to_run:
             st.warning("타겟을 선택하세요.")
         else:
-            # [수정] 백엔드 단일 타겟 수용 구조에 맞춰 순차 호출
             for target in targets_to_run:
-                with st.spinner(f"[{target}] 분석 중..."):
+                with st.spinner(f"[{target}] 스캔 및 분석 진행 중..."):
                     try:
-                        # 가이드 명시 API 호출: workflows/demo
-                        res = requests.post(f"{backend_url}/api/v1/workflows/demo", json={"target": target}, timeout=300)
+                        payload = {"target": target}
+                        res = requests.post(f"{backend_url}/api/v1/workflows/demo", json=payload, timeout=300)
+                        
                         if res.status_code == 200:
+                            st.success(f"✅ {target} 스캔 및 분석 완료!")
                             st.session_state['last_scan_data'] = res.json()
-                            st.success(f"✅ {target} 완료")
                         else:
-                            st.error(f"❌ {target} 실패")
+                            st.error(f"❌ {target} 스캔 실패 (상태 코드: {res.status_code})")
                     except Exception as e:
-                        st.error(f"Error: {e}")
+                        st.error(f"❌ {target} 서버 통신 에러: {e}")
             st.rerun()
 
 if st.session_state['last_scan_data']:
