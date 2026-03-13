@@ -15,8 +15,8 @@ def run_nmap_scan(target_input: str, profile: str = "mixed"):
     else:
         try:
             target_ip = socket.gethostbyname(target_input)
-        except socket.gaierror:
-            return {"error": "도메인을 찾을 수 없습니다."}
+        except socket.gaierror as exc:
+            raise ValueError("도메인을 찾을 수 없습니다.") from exc
 
     # 2. 프로젝트 기준 프로필로 변경 (quick, web, redis, mixed)
     port_map = {
