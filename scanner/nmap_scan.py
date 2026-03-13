@@ -8,7 +8,7 @@ def is_ip(address):
     ip_pattern = re.compile(r"^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$")
     return bool(ip_pattern.match(address))
 
-def run_nmap_scan(target_input: str, profile: str = "common"):
+def run_nmap_scan(target_input: str, profile: str = "mixed"):
     # 1. 대상 식별 및 IP 변환
     if is_ip(target_input):
         target_ip = target_input
@@ -18,25 +18,24 @@ def run_nmap_scan(target_input: str, profile: str = "common"):
         except socket.gaierror:
             return {"error": "도메인을 찾을 수 없습니다."}
 
-    # 2. 포트 범위 설정 (요구사항 반영: 21, 22, 80, 445, 3306, 6379, 9200 포함)
-    # common 프로필을 확장하여 필수 포트들을 모두 포함시켰습니다.
+    # 2. 프로젝트 기준 프로필로 변경 (quick, web, redis, mixed)
     port_map = {
         "quick": "80,443",
-        "common": "21,22,80,443,445,3306,6379,9200",
-        "mixed": "21,22,80,443,445,3306,6379,9200",
-        "full": "1-1024,3306,6379,9200"
+        "web": "80,443,8080",
+        "redis": "6379,22",
+        "mixed": "21,22,80,443,445,3306,6379,9200"
     }
-    port_range = port_map.get(profile, port_map["common"])
+    # 기본값은 mixed로 설정
+    port_range = port_map.get(profile, port_map["mixed"])
 
-    # 3. Nmap 실행 및 시간 측정
+    # 3. Nmap 실행
     nm = nmap.PortScanner()
-    started_at = datetime.now(timezone.utc).isoformat()
+    started_at = datetime.now(timezone.utc).astimezone().isoformat()
     
-    # -sV: 서비스/버전 탐지 옵션
     nm.scan(target_ip, port_range, '-sV')
-    finished_at = datetime.now(timezone.utc).isoformat()
+    finished_at = datetime.now(timezone.utc).astimezone().isoformat()
 
-    # 4. 결과 파싱 (요청받은 JSON 구조에 맞춤)
+    # 4. 결과 파싱
     ports_data = []
     if target_ip in nm.all_hosts():
         for proto in nm[target_ip].all_protocols():
@@ -53,7 +52,7 @@ def run_nmap_scan(target_input: str, profile: str = "common"):
                         }
                     })
 
-    # 5. 최종 리턴 구조 (Project Contract 반영)
+    # 5. 최종 리턴
     return {
         "scan_id": f"scan-{uuid4().hex[:8]}",
         "target": {
