@@ -19,15 +19,9 @@ def build_report_payload(
     *,
     narrative_backend: str = "template",
 ) -> dict[str, Any]:
-    """Return the richer report payload when the report module is available.
-
-    The report module is owned separately and may not exist in this checkout yet.
-    In that case, keep the backend usable by falling back to the analysis payload.
-    """
-    try:
-        module = importlib.import_module("report.risk_report")
-        builder = getattr(module, "build_risk_report")
-    except (ImportError, AttributeError):
+    """Return the richer report payload when the report module is available."""
+    builder = _load_report_builder()
+    if builder is None:
         LOGGER.info("report module is not available yet; using analysis payload fallback")
         return analysis_result
 
@@ -78,6 +72,16 @@ def build_report_bundle(scan_id: str, payload: dict[str, Any]) -> dict[str, str]
         "csv": csv_buffer.getvalue(),
         "html": html,
     }
+
+
+def _load_report_builder():
+    for module_name in ("report.risk_report", "analysis.risk_report"):
+        try:
+            module = importlib.import_module(module_name)
+            return getattr(module, "build_risk_report")
+        except (ImportError, AttributeError):
+            continue
+    return None
 
 
 def _extract_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
