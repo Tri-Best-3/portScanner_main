@@ -1,16 +1,47 @@
-"""Report generation stubs for the scaffold."""
+"""Report generation helpers for the backend."""
 
 from __future__ import annotations
 
 import csv
+import importlib
 import io
 import json
+import logging
 from typing import Any
 
+LOGGER = logging.getLogger(__name__)
 
-def build_report_bundle(scan_id: str, analysis_result: dict[str, Any]) -> dict[str, str]:
-    """Create lightweight report outputs from the current analysis result."""
-    vulnerabilities = analysis_result.get("analysis", {}).get("vulnerabilities", [])
+
+def build_report_payload(
+    scan_result: dict[str, Any],
+    analysis_result: dict[str, Any],
+    previous_scan: dict[str, Any] | None = None,
+    *,
+    narrative_backend: str = "template",
+) -> dict[str, Any]:
+    """Return the richer report payload when the report module is available.
+
+    The report module is owned separately and may not exist in this checkout yet.
+    In that case, keep the backend usable by falling back to the analysis payload.
+    """
+    try:
+        module = importlib.import_module("report.risk_report")
+        builder = getattr(module, "build_risk_report")
+    except (ImportError, AttributeError):
+        LOGGER.info("report module is not available yet; using analysis payload fallback")
+        return analysis_result
+
+    return builder(
+        scan_result=scan_result,
+        analysis_response=analysis_result,
+        previous_scan=previous_scan,
+        narrative_backend=narrative_backend,
+    )
+
+
+def build_report_bundle(scan_id: str, payload: dict[str, Any]) -> dict[str, str]:
+    """Create lightweight export formats from an analysis or report payload."""
+    vulnerabilities = _extract_rows(payload)
 
     csv_buffer = io.StringIO()
     writer = csv.DictWriter(
@@ -43,7 +74,13 @@ def build_report_bundle(scan_id: str, analysis_result: dict[str, Any]) -> dict[s
     )
 
     return {
-        "json": json.dumps(analysis_result, indent=2, ensure_ascii=False),
+        "json": json.dumps(payload, indent=2, ensure_ascii=False),
         "csv": csv_buffer.getvalue(),
         "html": html,
     }
+
+
+def _extract_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    if "findings_breakdown" in payload:
+        return list(payload.get("findings_breakdown") or [])
+    return list(payload.get("analysis", {}).get("vulnerabilities", []) or [])
