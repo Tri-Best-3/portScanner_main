@@ -28,15 +28,13 @@
   "scan_id": "string",
   "target": {
     "input_value": "string",
-    "resolved_ip": "string",
-    "scope_tag": "string | null"
+    "resolved_ip": "string"
   },
   "source_contract": {
-    "analysis_version": "string",
-    "uses_existing_analyzer": "boolean",
-    "uses_existing_risk_engine": "boolean"
+    "scan_contract_version": "string",
+    "analysis_contract_version": "string"
   },
-  "input_snapshot": {   # 현재 스캔 요약
+  "input_snapshot": {
     "open_ports": ["number"],
     "services": ["string"],
     "port_services": [
@@ -48,27 +46,34 @@
           "name": "string | null",
           "product": "string | null",
           "version": "string | null",
-          "extrainfo": "string | null"
+          "extrainfo": "string | null (optional)"
         }
       }
     ]
   },
-  "analysis_reference": {   # 기존 분석 결과
-    "original_score": "number",
-    "original_grade": "string",
+  "analysis_reference": {      # 기본 점수 (analyzer가 계산한 값)
+    "existing_risk_summary": {
+      "score": "number",
+      "grade": "string"
+    },
+    "existing_risk_summary_recomputed": {
+      "score": "number",
+      "grade": "string"
+    },
     "drift": {
       "new_ports": ["number"],
       "closed_ports": ["number"]
     }
   },
-  "scoring": {  # 조합 스코어링 (최종 점수)
+  "scoring": {    # 조합 가산점 추가한 최종 점수
     "base_score": "number",
     "combo_bonus_score": "number",
     "host_density_bonus_score": "number",
     "final_score": "number",
-    "grade": "string"
+    "final_grade": "string",
+    "score_note": "string"
   },
-  "findings_breakdown": [   # 개별 취약점
+  "findings_breakdown": [
     {
       "port": "number",
       "service_name": "string",
@@ -88,7 +93,7 @@
       "narrative_hint": "string"
     }
   ],
-  "combination_breakdown": [    # 조합이 위험한 이유 정보 
+  "combination_breakdown": [
     {
       "combo_id": "string",
       "label": "string",
@@ -100,7 +105,7 @@
       "narrative_hint": "string"
     }
   ],
-  "host_context": {     # 한 호스트에 붙은 민감 서비스 정보 
+  "host_context": {
     "resolved_ip": "string",
     "service_count": "number",
     "services": ["string"],
@@ -108,7 +113,7 @@
     "reason_code": "string",
     "narrative_hint": "string"
   },
-  "narrative": {    # 자연어 처리 결과 
+  "narrative": {
     "backend": "string",
     "model": "string | null",
     "language": "string",
@@ -116,12 +121,11 @@
     "summary": "string",
     "risk_explanation": ["string"],
     "recommended_action": ["string"],
-    "fallback_reason": "string | null"
+    "fallback_reason": "string | null (optional)"    # gemini 실패시 들어가는 에러 메세지 / 정상 실행시 안나옴
   }
 }
 
 ```
-
 
 
 `report_sample.json` 확인
@@ -149,8 +153,6 @@
       ],
       "narrative_hint": "The redis + ssh combination can increase the chance of chained access on the same host."
     },
-    ...
-  ],
   "host_context": {
     "resolved_ip": "172.30.0.12",
     "service_count": 3,
@@ -169,16 +171,17 @@
     "model": "gemini-2.5-flash",
     "language": "ko",
     "generated": true,
-    "summary": "demo.lab.local 서버는 Redis 및 Elasticsearch와 같은 중요한 데이터 서비스가 SSH와 함께 노출되어 있어 무단 접근 및 데이터 유출 위험이 매우 높습니다.",
+    "summary": "demo.lab.local은 Redis 및 Elasticsearch의 무단 접근 위험과 SSH 노출이 결합되어 심각한 보안 취약점을 가지고 있습니다.",
     "risk_explanation": [
-      "Redis (6379)와 Elasticsearch (9200) 같은 중요한 데이터 서비스가 원격 접근 서비스인 SSH (22)와 함께 노출되어 있습니다.",
-      "이러한 조합은 공격자가 SSH를 통해 시스템에 접근한 후, 인증되지 않은 Redis 또는 Elasticsearch 인스턴스를 악용하여 민감한 데이터에 접근하거나 시스템을 제어할 수 있는 경로를 제공합니다.",
-      "특히 Redis와 Elasticsearch는 무단 접근 위험이 'critical'로 평가되어 데이터 유출 및 서비스 중단의 직접적인 위협이 됩니다."
+      "Redis와 Elasticsearch 서비스가 무단 접근 위험에 노출되어 있으며, 여기에 SSH 서비스 노출이 더해져 심각한 보안 위험을 초래합니다.",
+      "공격자는 Redis(6379번 포트) 또는 Elasticsearch(9200번 포트)의 무단 접근 취약점을 악용하여 초기 침투를 시도할 수 있습니다.",
+      "초기 침투 후, 노출된 SSH 서비스(22번 포트)를 통해 내부 시스템으로의 측면 이동이나 지속적인 접근을 확보하여 피해를 확대할 수 있습니다.",
+      "이러한 서비스 조합은 데이터 유출 및 원격 코드 실행으로 이어질 수 있는 명확한 공격 경로를 제공합니다."
     ],
     "recommended_action": [
-      "Redis 및 Elasticsearch 서비스에 대한 접근 제어를 즉시 강화하고, 불필요한 외부 노출을 제한하십시오.",
-      "SSH 서비스에 대한 강력한 인증 정책(예: 키 기반 인증, 2FA)을 적용하고, 불필요한 경우 외부 접근을 제한하십시오.",
-      "모든 서비스에 대해 최신 보안 패치를 적용하고, 정기적인 취약점 스캔을 수행하여 추가적인 위험을 식별하십시오."
+      "Redis(6379번 포트) 및 Elasticsearch(9200번 포트) 서비스에 대한 인증 및 접근 제어를 즉시 강화하여 무단 접근을 방지하십시오.",
+      "SSH 서비스(22번 포트)에 대한 접근을 최소화하고, 강력한 인증(예: 키 기반 인증)을 구현하며, 불필요한 외부 노출을 제한하십시오.",
+      "모든 노출된 서비스에 대해 최소 권한 원칙을 적용하고, 방화벽 규칙을 검토하여 외부 접근을 엄격하게 통제하십시오."
     ]
   }
 ```
