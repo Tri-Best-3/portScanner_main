@@ -72,21 +72,26 @@ def _grade_for_score(score: int) -> str:
 
 def _service_name(port: PortScanResult) -> str:
     values = [port.service.name or "", port.service.product or ""]
+    # 단순 포트 추정보다 명시적인 서비스 메타데이터를 우선한다.
     normalized = " ".join(values).strip().lower()
     if "redis" in normalized:
         return "redis"
     if "ssh" in normalized:
         return "ssh"
-    if "samba" in normalized or "microsoft-ds" in normalized or "netbios-ssn" in normalized or port.port in {139, 445}:
+    # 포트 단독 과분류를 막기 위해 서비스 판별은 텍스트 기반으로 유지한다.
+    if "samba" in normalized or "microsoft-ds" in normalized or "netbios-ssn" in normalized or "smb" in normalized:
         return "samba"
-    if "ftp" in normalized or port.port == 21:
+    if "ftp" in normalized:
         return "ftp"
-    if "mysql" in normalized or port.port == 3306:
-        return "mysql"
     if "mariadb" in normalized:
         return "mariadb"
-    if "elasticsearch" in normalized or "opensearch" in normalized or port.port == 9200:
+    if "mysql" in normalized:
+        return "mysql"
+    if "elasticsearch" in normalized or "opensearch" in normalized:
         return "elasticsearch"
-    if "http" in normalized or "nginx" in normalized or "apache" in normalized or port.port in {80, 443, 8080}:
+    if "http" in normalized or "nginx" in normalized or "apache" in normalized:
+        return "http"
+    # 서비스 메타데이터가 완전히 비어 있을 때만 제한적으로 fallback을 허용한다.
+    if not normalized and port.port in {80, 443, 8080}:
         return "http"
     return (port.service.name or port.service.product or "").strip().lower()
