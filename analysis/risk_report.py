@@ -184,7 +184,8 @@ def build_risk_report(
     }
 
     payload["narrative"] = _build_narrative_section(
-        payload,
+        # payload,
+        narrative_ready,
         backend=narrative_backend,
         gemini_api_key=gemini_api_key,
         gemini_model=gemini_model,
@@ -276,7 +277,7 @@ def build_demo_payload(
 
 
 def _build_narrative_section(
-    payload: dict[str, Any],
+    narrative_ready: dict[str, Any],
     *,
     backend: str = "auto",
     gemini_api_key: Optional[str] = None,
@@ -287,10 +288,10 @@ def _build_narrative_section(
     effective_model = gemini_model or os.getenv("GEMINI_MODEL") or _DEFAULT_GEMINI_MODEL
 
     if backend == "template":
-        return _generate_narrative_with_template(payload)
+        return _generate_narrative_with_template(narrative_ready)
 
     if backend not in {"auto", "gemini"}:
-        template = _generate_narrative_with_template(payload)
+        template = _generate_narrative_with_template(narrative_ready)
         template.update(
             {
                 "backend": "template",
@@ -305,9 +306,9 @@ def _build_narrative_section(
     try:
         if not effective_key:
             raise GeminiUnavailableError("GEMINI_API_KEY is not set")
-        return _generate_narrative_with_gemini(payload, api_key=effective_key, model=effective_model)
+        return _generate_narrative_with_gemini(narrative_ready, api_key=effective_key, model=effective_model)
     except Exception as exc:
-        template = _generate_narrative_with_template(payload)
+        template = _generate_narrative_with_template(narrative_ready)
         template.update(
             {
                 "backend": "template",
@@ -321,7 +322,7 @@ def _build_narrative_section(
 
 
 def _generate_narrative_with_gemini(
-    payload: dict[str, Any],
+    narrative_ready: dict[str, Any],
     *,
     api_key: str,
     model: str,
@@ -331,7 +332,7 @@ def _generate_narrative_with_gemini(
     except Exception as exc:  # pragma: no cover
         raise GeminiUnavailableError("google-genai package is not installed") from exc
 
-    prompt_input = payload["narrative_ready"]["llm_ready_prompt_input"]
+    prompt_input = narrative_ready["llm_ready_prompt_input"]
     prompt = {
         "task": "보안 위험 요약 생성",
         "language": "ko",
@@ -396,57 +397,65 @@ def _generate_narrative_with_gemini(
     }
 
 
-def _generate_narrative_with_template(payload: dict[str, Any]) -> dict[str, Any]:
-    target = payload["target"].get("resolved_ip") or payload["target"].get("input_value")
-    services = payload["input_snapshot"]["services"]
-    combos = payload["combination_breakdown"]
-    findings = payload["findings_breakdown"]
-    score = payload["scoring"]["final_score"]
-    grade = payload["scoring"]["final_grade"]
-    drift = payload.get("analysis_reference", {}).get("drift", {})
+def _generate_narrative_with_template(narrative_ready: dict[str, Any]) -> dict[str, Any]:
+    summary_points = narrative_ready.get("summary_points", [])
+    attack_path_hints = narrative_ready.get("attack_path_hints", [])
+    top_findings = narrative_ready.get("top_risk_findings", [])
 
-    top_findings = sorted(findings, key=lambda item: item["score_breakdown"]["total"], reverse=True)[:2]
-    top_titles = [item["title"] for item in top_findings]
+    facts = narrative_ready.get("llm_ready_prompt_input", {}).get("facts", {})
+    target_info = facts.get("target", {})
+    target = target_info.get("resolved_ip") or target_info.get("input_value") or "unknown target"
 
-    if combos:
-        combo_text = ", ".join(" + ".join(item["services"]) for item in combos[:2])
-        summary = (
-            f"대상 {target}는 {', '.join(services)} 서비스가 노출되어 있으며, 특히 {combo_text} 조합으로 인해 "
-            f"조합 위험 점수 {score}점({grade})으로 평가되었습니다."
-        )
-    else:
-        summary = (
-            f"대상 {target}는 {', '.join(services)} 서비스가 노출되어 있으며, 후가공 리포트 기준 "
-            f"위험 점수는 {score}점({grade})입니다."
-        )
+    services = facts.get("services", [])
+    final_score = facts.get("final_score")
+    final_grade = facts.get("final_grade")
+
+    drift = facts.get("drift", {}) or {}
+    new_ports = drift.get("new_ports", []) or []
+    closed_ports = drift.get("closed_ports", []) or []
 
     risk_explanation: list[str] = []
-    for item in top_findings:
-        risk_explanation.append(
-            f"{item['title']}는 포트 {item['port']}에서 확인되었고, 후가공 점수 {item['score_breakdown']['total']}점으로 반영되었습니다."
-        )
-    for item in combos[:2]:
-        risk_explanation.append(item["narrative_hint"])
 
-    if drift.get("new_ports"):
+    if summary_points:
+        risk_explanation.extend(summary_points[:2])
+
+    if attack_path_hints:
+        risk_explanation.extend(attack_path_hints[:2])
+
+    if new_ports:
         risk_explanation.append(
-            f"이전 스캔 대비 새로 열린 포트는 {', '.join(map(str, drift['new_ports']))} 입니다."
+            f"이전 스캔 대비 새로 열린 포트는 {', '.join(map(str, new_ports))} 입니다."
         )
-    if drift.get("closed_ports"):
+
+    if closed_ports:
         risk_explanation.append(
-            f"이전 스캔 대비 닫힌 포트는 {', '.join(map(str, drift['closed_ports']))} 입니다."
+            f"이전 스캔 대비 닫힌 포트는 {', '.join(map(str, closed_ports))} 입니다."
         )
+
+    if not risk_explanation:
+        risk_explanation.append("탐지된 서비스 노출 정보를 기반으로 위험도를 평가했습니다.")
 
     recommended_action: list[str] = []
-    if any("redis" in item.get("services", []) for item in combos):
-        recommended_action.append("Redis 외부 노출을 차단하고 인증 설정 여부를 우선 점검하세요.")
-    if any("ssh" in item.get("services", []) for item in combos) or "ssh" in services:
-        recommended_action.append("SSH는 허용 대역을 제한하고 불필요한 외부 노출을 줄이세요.")
-    if any("samba" in item.get("services", []) for item in combos) or "samba" in services:
-        recommended_action.append("파일 공유 서비스는 접근 제어와 쓰기 권한을 우선 점검하세요.")
+
+    if "redis" in services:
+        recommended_action.append("Redis 서비스의 외부 노출 여부와 인증 설정을 우선 점검하세요.")
+    if "ssh" in services:
+        recommended_action.append("SSH 접근 대상을 제한하고 불필요한 외부 노출을 줄이세요.")
+    if "samba" in services:
+        recommended_action.append("Samba 공유 설정과 익명 접근 허용 여부를 점검하세요.")
+    if "elasticsearch" in services:
+        recommended_action.append("Elasticsearch의 외부 접근 제한과 인증 구성을 확인하세요.")
+
     if not recommended_action:
-        recommended_action.append("외부에 노출된 서비스의 접근 범위와 인증 설정을 우선 점검하세요.")
-    recommended_action.append("점수가 높은 노출 항목부터 우선순위를 정해 순차적으로 조치하세요.")
+        recommended_action.append("불필요하게 노출된 서비스와 포트를 우선 정리하세요.")
+
+    top_titles = [item.get("title") for item in top_findings if item.get("title")]
+    top_titles_text = ", ".join(top_titles[:2]) if top_titles else "주요 노출 서비스"
+
+    summary = (
+        f"{target} 대상에서 {top_titles_text} 기반 위험 신호가 확인되었으며, "
+        f"최종 조합 위험도는 {final_score}점({final_grade})으로 평가되었습니다."
+    )
 
     return {
         "backend": "template",
@@ -456,12 +465,7 @@ def _generate_narrative_with_template(payload: dict[str, Any]) -> dict[str, Any]
         "summary": summary,
         "risk_explanation": risk_explanation[:4],
         "recommended_action": recommended_action[:4],
-        "template_basis": {
-            "target": target,
-            "services": services,
-            "top_findings": top_titles,
-            "matched_combo_count": len(combos),
-        },
+        "fallback_reason": None,
     }
 
 

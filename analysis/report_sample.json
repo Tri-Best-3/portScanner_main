@@ -1,6 +1,6 @@
 {
   "report_type": "combination_risk_report",
-  "generated_at": "2026-03-11T20:11:47.077393+00:00",
+  "generated_at": "2026-03-13T07:04:47.577938+00:00",
   "scan_id": "scan-demo-001",
   "target": {
     "input_value": "demo.lab.local",
@@ -185,35 +185,21 @@
     "narrative_hint": "Multiple sensitive services are concentrated on the same host, which increases operational exposure."
   },
   "narrative": {
-    "backend": "template",
-    "model": null,
+    "backend": "gemini",
+    "model": "gemini-2.5-flash",
     "language": "ko",
-    "generated": false,
-    "summary": "대상 172.30.0.12는 elasticsearch, redis, ssh 서비스가 노출되어 있으며, 특히 redis + ssh, elasticsearch + ssh 조합으로 인해 조합 위험 점수 100점(critical)으로 평가되었습니다.",
+    "generated": true,
+    "summary": "demo.lab.local은 Redis 및 Elasticsearch의 무단 접근 위험과 SSH 노출이 결합되어 심각한 보안 취약점을 가지고 있습니다.",
     "risk_explanation": [
-      "Redis Unauthorized Access는 포트 6379에서 확인되었고, 후가공 점수 55점으로 반영되었습니다.",
-      "Elasticsearch Unauthorized Access Risk는 포트 9200에서 확인되었고, 후가공 점수 55점으로 반영되었습니다.",
-      "The redis + ssh combination can increase the chance of chained access on the same host.",
-      "The elasticsearch + ssh combination exposes a data service together with remote administration access."
+      "Redis와 Elasticsearch 서비스가 무단 접근 위험에 노출되어 있으며, 여기에 SSH 서비스 노출이 더해져 심각한 보안 위험을 초래합니다.",
+      "공격자는 Redis(6379번 포트) 또는 Elasticsearch(9200번 포트)의 무단 접근 취약점을 악용하여 초기 침투를 시도할 수 있습니다.",
+      "초기 침투 후, 노출된 SSH 서비스(22번 포트)를 통해 내부 시스템으로의 측면 이동이나 지속적인 접근을 확보하여 피해를 확대할 수 있습니다.",
+      "이러한 서비스 조합은 데이터 유출 및 원격 코드 실행으로 이어질 수 있는 명확한 공격 경로를 제공합니다."
     ],
     "recommended_action": [
-      "Redis 외부 노출을 차단하고 인증 설정 여부를 우선 점검하세요.",
-      "SSH는 허용 대역을 제한하고 불필요한 외부 노출을 줄이세요.",
-      "점수가 높은 노출 항목부터 우선순위를 정해 순차적으로 조치하세요."
-    ],
-    "template_basis": {
-      "target": "172.30.0.12",
-      "services": [
-        "elasticsearch",
-        "redis",
-        "ssh"
-      ],
-      "top_findings": [
-        "Redis Unauthorized Access",
-        "Elasticsearch Unauthorized Access Risk"
-      ],
-      "matched_combo_count": 2
-    },
-    "fallback_reason": "'narrative_ready'"
+      "Redis(6379번 포트) 및 Elasticsearch(9200번 포트) 서비스에 대한 인증 및 접근 제어를 즉시 강화하여 무단 접근을 방지하십시오.",
+      "SSH 서비스(22번 포트)에 대한 접근을 최소화하고, 강력한 인증(예: 키 기반 인증)을 구현하며, 불필요한 외부 노출을 제한하십시오.",
+      "모든 노출된 서비스에 대해 최소 권한 원칙을 적용하고, 방화벽 규칙을 검토하여 외부 접근을 엄격하게 통제하십시오."
+    ]
   }
 }
