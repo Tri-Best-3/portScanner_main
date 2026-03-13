@@ -34,8 +34,8 @@ from analysis.models import AnalysisResponse, DriftResult, PortScanResult, ScanR
 from analysis.risk_engine import (
     SEVERITY_WEIGHTS,
     SERVICE_COMBO_BONUSES,
-    _grade_for_score,
-    _service_name,
+    grade_for_score,
+    service_name,
     calculate_risk_summary,
 )
 
@@ -127,7 +127,7 @@ def build_risk_report(
     density_bonus_score = host_density["bonus"]
 
     final_score = min(base_score + combo_bonus_score + density_bonus_score, 100)
-    grade = _grade_for_score(final_score)
+    grade = grade_for_score(final_score)
 
     # 기존 risk_engine의 요약 점수와 후가공 점수를 같이 남겨 비교 가능하게 둔다.
     existing_summary = calculate_risk_summary(deduped_findings, ports)
@@ -505,7 +505,7 @@ def _matched_combo_breakdown(
     for required_services, bonus, label in SERVICE_COMBO_BONUSES:
         if not required_services.issubset(service_set):
             continue
-        matched_ports = [port.port for port in ports if _service_name(port) in required_services]
+        matched_ports = [port.port for port in ports if service_name(port) in required_services]
         reason_code = _SERVICE_REASON_CODES.get(frozenset(required_services), "service_exposure_combination")
         breakdown.append(
             {
@@ -655,14 +655,14 @@ def _combo_narrative_hint(services: Sequence[str], reason_code: str) -> str:
 
 
 def _normalized_services(ports: Sequence[PortScanResult]) -> list[str]:
-    return sorted({_service_name(port) for port in ports if _service_name(port)})
+    return sorted({service_name(port) for port in ports if service_name(port)})
 
 
 def _port_service_item(port: PortScanResult) -> dict[str, Any]:
     return {
         "port": port.port,
         "protocol": port.protocol,
-        "normalized_service": _service_name(port),
+        "normalized_service": service_name(port),
         "service": port.service.to_dict(),
     }
 

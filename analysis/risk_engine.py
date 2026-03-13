@@ -90,3 +90,9 @@ def _service_name(port: PortScanResult) -> str:
     if "http" in normalized or "nginx" in normalized or "apache" in normalized or port.port in {80, 443, 8080}:
         return "http"
     return (port.service.name or port.service.product or "").strip().lower()
+
+def grade_for_score(score: int) -> str:
+    return _grade_for_score(score)
+
+def service_name(port) -> str:
+    return _service_name(port)
