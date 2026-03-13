@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from analysis.analyzer import analyze
 from backend.app.config import settings
 from backend.app.schemas import AnalyzeRequest, ReportResponse, ScanRequest, WorkflowResponse
-from backend.app.services.report_service import build_report_bundle
+from backend.app.services.report_service import build_report_bundle, build_report_payload
 from backend.app.storage import Storage
 from scanner.scan import run_scan
 
@@ -85,11 +85,24 @@ def run_demo_workflow(payload: ScanRequest) -> WorkflowResponse:
     return WorkflowResponse(scan_result=scan_result, analysis_result=analysis_result)
 
 
-@app.post("/api/v1/reports/{scan_id}", response_model=ReportResponse)
-def create_report(scan_id: str) -> ReportResponse:
+@app.get("/api/v1/reports/{scan_id}")
+def get_report(scan_id: str, narrative_backend: str = "template") -> dict[str, Any]:
     scan_result = storage.get_scan(scan_id)
     analysis_result = storage.get_analysis(scan_id)
     if scan_result is None or analysis_result is None:
         raise HTTPException(status_code=404, detail="scan or analysis not found")
-    formats = build_report_bundle(scan_id, analysis_result)
+
+    previous_scan = storage.get_previous_scan_for_target(scan_result["target"]["input_value"], scan_id)
+    return build_report_payload(
+        scan_result=scan_result,
+        analysis_result=analysis_result,
+        previous_scan=previous_scan,
+        narrative_backend=narrative_backend,
+    )
+
+
+@app.post("/api/v1/reports/{scan_id}", response_model=ReportResponse)
+def create_report(scan_id: str, narrative_backend: str = "template") -> ReportResponse:
+    report_payload = get_report(scan_id, narrative_backend=narrative_backend)
+    formats = build_report_bundle(scan_id, report_payload)
     return ReportResponse(scan_id=scan_id, formats=formats)
