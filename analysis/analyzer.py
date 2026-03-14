@@ -56,6 +56,7 @@ EXPOSURE_RULES: tuple[ExposureRule, ...] = (
         ports=(22,),
         match_confidence=0.90,
     ),
+    # 확장된 서비스 노출 룰: 포트는 신뢰도 보조 사항이고 alias 일치가 필수다.
     ExposureRule(
         title="Samba Service Exposure",
         severity="high",
@@ -238,9 +239,8 @@ def _normalized_service_tokens(port_entry: PortScanResult) -> set[str]:
 
 def _matches_exposure_rule(port_entry: PortScanResult, rule: ExposureRule) -> bool:
     tokens = _normalized_service_tokens(port_entry)
-    alias_match = any(alias in tokens for alias in rule.aliases)
-    port_match = port_entry.port in rule.ports
-    return alias_match or port_match
+    # service.name / service.product 근거가 있어야 하며, 포트만으로는 finding을 만들지 않는다.
+    return any(alias in tokens for alias in rule.aliases)
 
 
 def _rule_confidence(port_entry: PortScanResult, rule: ExposureRule) -> float:
@@ -248,6 +248,7 @@ def _rule_confidence(port_entry: PortScanResult, rule: ExposureRule) -> float:
     score = 0.55
     if any(alias in tokens for alias in rule.aliases):
         score += 0.25
+    # 포트는 finding 생성 조건이 아니라 confidence 조정용 보조 사항이다.
     if port_entry.port in rule.ports:
         score += 0.15
     return round(min(score, rule.match_confidence), 2)
