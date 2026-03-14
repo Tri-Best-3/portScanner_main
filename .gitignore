@@ -5,3 +5,9 @@ __pycache__/
 .env
 *.db
 .streamlit/
+backend_data/
+.tmp-vulhub/
+.tmp-vsftpd/
+pic/
+LOCAL_INTEGRATION_UPDATE.md
+targets/vsftpd-2.3.4/

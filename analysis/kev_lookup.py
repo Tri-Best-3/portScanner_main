@@ -18,7 +18,15 @@ class KevLookupConfig:
     base_url: str = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
 
 
-_OFFLINE_KEV = {"CVE-2021-23017", "CVE-2021-41773"}
+_OFFLINE_KEV = {
+    "CVE-2021-23017",
+    "CVE-2021-41773",
+    "CVE-2017-12615",
+    "CVE-2017-7494",
+    "CVE-2012-2122",
+    "CVE-2015-1427",
+    "CVE-2011-2523",
+}
 
 
 def lookup_kev(

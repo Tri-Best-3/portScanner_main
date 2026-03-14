@@ -18,6 +18,10 @@ def build_report_payload(
     previous_scan: dict[str, Any] | None = None,
     *,
     narrative_backend: str = "template",
+    gemini_api_key: str | None = None,
+    gemini_model: str | None = None,
+    ollama_base_url: str | None = None,
+    ollama_model: str | None = None,
 ) -> dict[str, Any]:
     """Return the richer report payload when the report module is available."""
     builder = _load_report_builder()
@@ -30,6 +34,10 @@ def build_report_payload(
         analysis_response=analysis_result,
         previous_scan=previous_scan,
         narrative_backend=narrative_backend,
+        gemini_api_key=gemini_api_key,
+        gemini_model=gemini_model,
+        ollama_base_url=ollama_base_url,
+        ollama_model=ollama_model,
     )
 
 

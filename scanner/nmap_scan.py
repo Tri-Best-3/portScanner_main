@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import socket
 from datetime import datetime, timezone
@@ -8,15 +9,43 @@ from uuid import uuid4
 import nmap
 
 TARGET_IPS = {
-    "web-target": "172.28.0.10",
-    "web.lab.local": "172.28.0.10",
-    "redis-vuln": "172.28.0.20",
-    "redis.lab.local": "172.28.0.20",
-    "samba-vuln": "172.28.0.30",
-    "samba.lab.local": "172.28.0.30",
-    "ssh-target": "172.28.0.40",
-    "ssh.lab.local": "172.28.0.40",
-    "other-service": "172.28.0.50",
+    "juice-shop": "172.28.0.11",
+    "juice-shop.lab.local": "172.28.0.11",
+    "tomcat-cve-2017-12615": "172.28.0.10",
+    "tomcat-cve-2017-12615.lab.local": "172.28.0.10",
+    "redis-4-unacc": "172.28.0.20",
+    "redis-4-unacc.lab.local": "172.28.0.20",
+    "sambacry": "172.28.0.30",
+    "sambacry.lab.local": "172.28.0.30",
+    "mysql-cve-2012-2122": "172.28.0.60",
+    "mysql-cve-2012-2122.lab.local": "172.28.0.60",
+    "elasticsearch-cve-2015-1427": "172.28.0.70",
+    "elasticsearch-cve-2015-1427.lab.local": "172.28.0.70",
+    "vsftpd-2-3-4": "172.28.0.80",
+    "vsftpd-2-3-4.lab.local": "172.28.0.80",
+}
+
+PROFILE_CONFIG = {
+    "quick": {
+        "ports": "21,22,80,139,443,445,3000,8080,3306,6379,9200",
+        "args": "-sV",
+    },
+    "common": {
+        "ports": None,
+        "args": "-sV --top-ports 100",
+    },
+    "deep": {
+        "ports": None,
+        "args": "-sV --top-ports 1000",
+    },
+    "full": {
+        "ports": None,
+        "args": "-sV -p-",
+    },
+    "web": {
+        "ports": "80,443,3000,8080,8443",
+        "args": "-sV",
+    },
 }
 
 
@@ -25,7 +54,7 @@ def is_ip(address: str) -> bool:
     return bool(ip_pattern.match(address))
 
 
-def run_nmap_scan(target_input: str, profile: str = "mixed") -> dict[str, object]:
+def run_nmap_scan(target_input: str, profile: str = "common") -> dict[str, object]:
     normalized = target_input.strip().lower()
     if is_ip(normalized):
         target_ip = normalized
@@ -37,17 +66,13 @@ def run_nmap_scan(target_input: str, profile: str = "mixed") -> dict[str, object
         except socket.gaierror as exc:
             raise ValueError("도메인을 찾을 수 없습니다.") from exc
 
-    port_map = {
-        "quick": "80,443",
-        "web": "80,443,8080",
-        "redis": "6379,22",
-        "mixed": "21,22,80,443,445,3306,6379,9200",
-    }
-    port_range = port_map.get(profile, port_map["mixed"])
+    profile_config = PROFILE_CONFIG.get(profile, PROFILE_CONFIG["common"])
 
     nm = nmap.PortScanner()
     started_at = datetime.now(timezone.utc).astimezone().isoformat()
-    nm.scan(target_ip, port_range, "-sV")
+    scan_args = profile_config["args"]
+    scan_target_ports = profile_config["ports"]
+    nm.scan(target_ip, scan_target_ports, scan_args)
     finished_at = datetime.now(timezone.utc).astimezone().isoformat()
 
     ports_data: list[dict[str, object]] = []
@@ -68,6 +93,21 @@ def run_nmap_scan(target_input: str, profile: str = "mixed") -> dict[str, object
                         }
                     )
 
+    if scan_target_ports:
+        logged_command = f"nmap {scan_args} -p {scan_target_ports} {target_ip}"
+    else:
+        logged_command = f"nmap {scan_args} {target_ip}"
+
+    try:
+        csv_output = nm.csv()
+    except Exception:
+        csv_output = ""
+
+    try:
+        raw_output = json.dumps(nm._scan_result, ensure_ascii=False, indent=2, default=str)
+    except Exception:
+        raw_output = ""
+
     return {
         "scan_id": f"scan-{uuid4().hex[:8]}",
         "target": {
@@ -80,12 +120,22 @@ def run_nmap_scan(target_input: str, profile: str = "mixed") -> dict[str, object
             "logs": [
                 {
                     "source": "nmap",
-                    "phase": "service_detection",
-                    "command": f"nmap -sV -p {port_range} {target_ip}",
+                    "phase": "service_detection_csv",
+                    "command": logged_command,
                     "started_at": started_at,
                     "finished_at": finished_at,
                     "return_code": 0,
-                    "stdout": f"Nmap scan completed for {target_ip}",
+                    "stdout": csv_output or f"Nmap scan completed for {target_ip}",
+                    "stderr": "",
+                },
+                {
+                    "source": "nmap",
+                    "phase": "service_detection_raw",
+                    "command": logged_command,
+                    "started_at": started_at,
+                    "finished_at": finished_at,
+                    "return_code": 0,
+                    "stdout": raw_output,
                     "stderr": "",
                 }
             ],
