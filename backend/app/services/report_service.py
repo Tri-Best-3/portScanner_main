@@ -25,7 +25,7 @@ def build_report_payload(
     In that case, keep the backend usable by falling back to the analysis payload.
     """
     try:
-        module = importlib.import_module("report.risk_report")
+        module = importlib.import_module("analysis.risk_report")
         builder = getattr(module, "build_risk_report")
     except (ImportError, AttributeError):
         LOGGER.info("report module is not available yet; using analysis payload fallback")

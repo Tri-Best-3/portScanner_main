@@ -39,7 +39,18 @@ def get_scan_detail(url, scan_id):
         # 가이드 명시 API 호출: 스캔 결과 및 분석 결과 개별 취득
         scan_res = requests.get(f"{url}/api/v1/scans/{scan_id}", timeout=5).json()
         analysis_res = requests.get(f"{url}/api/v1/analyses/{scan_id}", timeout=5).json()
-        return {"scan_result": scan_res, "analysis_result": analysis_res}
+        report_res = get_report_detail(url, scan_id)
+
+        return {"scan_result": scan_res, "analysis_result": analysis_res, "report_result": report_res}
+    except:
+        return None
+
+def get_report_detail(url, scan_id):
+    try:
+        res = requests.get(f"{url}/api/v1/reports/{scan_id}", timeout=10)
+        if res.status_code == 200:
+            return res.json()
+        return None
     except:
         return None
 
@@ -76,7 +87,9 @@ def render_dashboard(data):
 
     with t_ai:
         # 백엔드 API 응답 구조 준수
-        narrative = analysis_res.get('narrative')
+        report_res = data.get("report_result", {})
+        narrative = (report_res or {}).get("narrative")
+        # narrative = analysis_res.get('narrative')
         if narrative and narrative.get('generated'):
             st.info(narrative.get('summary', ''))
             ca1, ca2 = st.columns(2)
@@ -148,7 +161,16 @@ with st.expander("🚀 스캔 실행", expanded=True):
                         
                         if res.status_code == 200:
                             st.success(f"✅ {target} 스캔 및 분석 완료!")
-                            st.session_state['last_scan_data'] = res.json()
+                            # st.session_state['last_scan_data'] = res.json()
+                            workflow_data = res.json()
+                            scan_id = workflow_data.get("scan_result", {}).get("scan_id")
+
+                            report_data = None
+                            if scan_id:
+                                report_data = get_report_detail(backend_url, scan_id)
+
+                            workflow_data["report_result"] = report_data
+                            st.session_state["last_scan_data"] = workflow_data
                         else:
                             st.error(f"❌ {target} 스캔 실패 (상태 코드: {res.status_code})")
                     except Exception as e:
@@ -157,3 +179,4 @@ with st.expander("🚀 스캔 실행", expanded=True):
 
 if st.session_state['last_scan_data']:
     render_dashboard(st.session_state['last_scan_data'])
+

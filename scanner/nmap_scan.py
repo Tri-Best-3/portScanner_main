@@ -1,22 +1,64 @@
 import nmap
 import socket
+import ipaddress
 import re
 from datetime import datetime, timezone
 from uuid import uuid4
 
-def is_ip(address):
-    ip_pattern = re.compile(r"^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$")
-    return bool(ip_pattern.match(address))
+TARGET_IPS = {
+    "web-target": "172.28.0.10",
+    "web.lab.local": "172.28.0.10",
+    "redis-vuln": "172.28.0.20",
+    "redis.lab.local": "172.28.0.20",
+    "samba-vuln": "172.28.0.30",
+    "samba.lab.local": "172.28.0.30",
+    "ssh-target": "172.28.0.40",
+    "ssh.lab.local": "172.28.0.40",
+    "other-service": "172.28.0.50",
+}
+
+
+def resolve_target_ip(target_input: str, profile: str = "mixed") -> str:
+    normalized = target_input.strip().lower()
+
+    try:
+        ipaddress.ip_address(normalized)
+        return normalized
+    except ValueError:
+        pass
+
+    if normalized in TARGET_IPS:
+        return TARGET_IPS[normalized]
+
+    if "redis" in normalized or profile == "redis":
+        return TARGET_IPS["redis.lab.local"]
+    if "web" in normalized or profile == "web":
+        return TARGET_IPS["web.lab.local"]
+    if "samba" in normalized:
+        return TARGET_IPS["samba.lab.local"]
+    if "ssh" in normalized:
+        return TARGET_IPS["ssh.lab.local"]
+
+    try:
+        return socket.gethostbyname(target_input)
+    except socket.gaierror as exc:
+        raise ValueError(f"도메인을 찾을 수 없습니다. : {target_input}") from exc
+
+
+# def is_ip(address):
+#     ip_pattern = re.compile(r"^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$")
+#     return bool(ip_pattern.match(address))
 
 def run_nmap_scan(target_input: str, profile: str = "mixed"):
     # 1. 대상 식별 및 IP 변환
-    if is_ip(target_input):
-        target_ip = target_input
-    else:
-        try:
-            target_ip = socket.gethostbyname(target_input)
-        except socket.gaierror as exc:
-            raise ValueError("도메인을 찾을 수 없습니다.") from exc
+    # if is_ip(target_input):
+    #     target_ip = target_input
+    # else:
+    #     try:
+    #         target_ip = socket.gethostbyname(target_input)
+    #     except socket.gaierror as exc:
+    #         raise ValueError("도메인을 찾을 수 없습니다.") from exc
+    target_ip = resolve_target_ip(target_input, profile)
 
     # 2. 프로젝트 기준 프로필로 변경 (quick, web, redis, mixed)
     port_map = {
