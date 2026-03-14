@@ -29,7 +29,7 @@ try:
 except Exception:
     pass
 
-from analysis.analyzer import AnalyzerConfig, analyze
+# from analysis.analyzer import AnalyzerConfig, analyze
 from analysis.models import AnalysisResponse, DriftResult, PortScanResult, ScanResult, VulnerabilityFinding
 from analysis.risk_engine import (
     SEVERITY_WEIGHTS,
@@ -77,9 +77,8 @@ class NarrativeSchemaError(ValueError):
 
 def build_risk_report(
     scan_result: ScanResult | dict[str, Any],
-    analysis_response: Optional[AnalysisResponse | dict[str, Any]] = None,
+    analysis_response: AnalysisResponse | dict[str, Any],
     previous_scan: Optional[ScanResult | dict[str, Any]] = None,
-    analyzer_config: Optional[AnalyzerConfig] = None,
     *,
     narrative_backend: str = "auto",
     gemini_api_key: Optional[str] = None,
@@ -109,9 +108,7 @@ def build_risk_report(
     """
 
     current = _ensure_scan_result(scan_result)
-    analysis = _ensure_analysis_response(analysis_response) if analysis_response else analyze(
-        current, previous_scan=previous_scan, config=analyzer_config
-    )
+    analysis = _ensure_analysis_response(analysis_response)
 
     ports = list(current.scan.ports)
     deduped_findings = _deduplicate_findings(list(analysis.analysis.vulnerabilities))
@@ -141,11 +138,6 @@ def build_risk_report(
         final_score=final_score,
         grade=grade,
     )
-
-    # # JSON 출력용 - 불필요한 정보 제거
-    # narrative_ready_output = dict(narrative_ready)
-    # narrative_ready_output.pop("top_risk_findings", None)
-    # narrative_ready_output.pop("llm_ready_prompt_input", None)
 
     payload = {
         "report_type": "combination_risk_report",
@@ -196,9 +188,8 @@ def build_risk_report(
 def write_risk_report(
     output_path: str,
     scan_result: ScanResult | dict[str, Any],
-    analysis_response: Optional[AnalysisResponse | dict[str, Any]] = None,
+    analysis_response: AnalysisResponse | dict[str, Any],
     previous_scan: Optional[ScanResult | dict[str, Any]] = None,
-    analyzer_config: Optional[AnalyzerConfig] = None,
     *,
     narrative_backend: str = "auto",
     gemini_api_key: Optional[str] = None,
@@ -209,7 +200,6 @@ def write_risk_report(
         scan_result=scan_result,
         analysis_response=analysis_response,
         previous_scan=previous_scan,
-        analyzer_config=analyzer_config,
         narrative_backend=narrative_backend,
         gemini_api_key=gemini_api_key,
         gemini_model=gemini_model,
@@ -217,63 +207,6 @@ def write_risk_report(
     with open(output_path, "w", encoding="utf-8") as fh:
         json.dump(payload, fh, ensure_ascii=False, indent=2)
     return payload
-
-
-# 테스트용 더미 데이터
-
-def build_demo_payload(
-    *,
-    narrative_backend: str = "auto",
-    gemini_api_key: Optional[str] = None,
-    gemini_model: Optional[str] = None,
-) -> dict[str, Any]:
-    """Return a self-contained demo report with mock scan values."""
-    demo_scan = {
-        "scan_id": "scan-demo-001",
-        "target": {"input_value": "demo.lab.local", "resolved_ip": "172.30.0.12"},
-        "scan": {
-            "started_at": "2026-03-11T16:10:00+09:00",
-            "ports": [
-                {
-                    "port": 22,
-                    "protocol": "tcp",
-                    "service": {"name": "ssh", "product": "OpenSSH", "version": "8.9p1"},
-                },
-                {
-                    "port": 6379,
-                    "protocol": "tcp",
-                    "service": {"name": "redis", "product": "Redis", "version": "4.0.14"},
-                },
-                {
-                    "port": 9200,
-                    "protocol": "tcp",
-                    "service": {
-                        "name": "http",
-                        "product": "Elasticsearch",
-                        "version": "7.10.0",
-                    },
-                },
-            ],
-            "logs": [
-                {
-                    "source": "nmap",
-                    "phase": "service_detection",
-                    "command": "nmap -sV demo.lab.local",
-                    "started_at": "2026-03-11T16:10:00+09:00",
-                    "finished_at": "2026-03-11T16:10:04+09:00",
-                    "return_code": 0,
-                    "stdout": "mock nmap output",
-                    "stderr": "",
-                }
-            ],
-        },
-    }
-    return build_risk_report(
-        demo_scan,
-        narrative_backend=narrative_backend,
-        gemini_api_key=gemini_api_key,
-        gemini_model=gemini_model,
-    )
 
 
 def _build_narrative_section(
@@ -712,16 +645,3 @@ def _ensure_analysis_response(value: AnalysisResponse | dict[str, Any]) -> Analy
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-if __name__ == "__main__":
-    import sys
-
-    output = sys.argv[1] if len(sys.argv) > 1 else None
-    backend = sys.argv[2] if len(sys.argv) > 2 else "auto"
-    payload = build_demo_payload(narrative_backend=backend)
-    if output:
-        with open(output, "w", encoding="utf-8") as fh:
-            json.dump(payload, fh, ensure_ascii=False, indent=2)
-    else:
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
