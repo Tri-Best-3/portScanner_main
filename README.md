@@ -23,6 +23,12 @@ docker compose up -d --build
 docker compose down
 ```
 
+## 문서
+- 프로젝트 스펙: `Docs/PROJECT_SPEC.md`
+- 개발 가이드: `Docs/DEVELOPER_GUIDE.md`
+- 리포트 가이드: `Docs/REPORT_GUIDE.md`
+- 통합 업데이트: `Docs/INTEGRATION_UPDATE.md`
+
 ## 폴더 구성
 - 스캐너 모듈: `scanner/`
 - 분석 모듈: `analysis/`
