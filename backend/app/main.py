@@ -86,7 +86,7 @@ def run_demo_workflow(payload: ScanRequest) -> WorkflowResponse:
 
 
 @app.get("/api/v1/reports/{scan_id}")
-def get_report(scan_id: str, narrative_backend: str = "template") -> dict[str, Any]:
+def get_report(scan_id: str, narrative_backend: str = "gemini") -> dict[str, Any]:
     scan_result = storage.get_scan(scan_id)
     analysis_result = storage.get_analysis(scan_id)
     if scan_result is None or analysis_result is None:
@@ -102,7 +102,7 @@ def get_report(scan_id: str, narrative_backend: str = "template") -> dict[str, A
 
 
 @app.post("/api/v1/reports/{scan_id}", response_model=ReportResponse)
-def create_report(scan_id: str, narrative_backend: str = "template") -> ReportResponse:
+def create_report(scan_id: str, narrative_backend: str = "gemini") -> ReportResponse:
     report_payload = get_report(scan_id, narrative_backend=narrative_backend)
     formats = build_report_bundle(scan_id, report_payload)
     return ReportResponse(scan_id=scan_id, formats=formats)

@@ -8,6 +8,8 @@ services:
       BACKEND_HOST: 0.0.0.0
       BACKEND_PORT: 8000
       BACKEND_SQLITE_PATH: /app/backend_data/app.db
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GEMINI_MODEL: ${GEMINI_MODEL}
     ports:
       - "8000:8000"
     volumes:

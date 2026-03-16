@@ -17,7 +17,7 @@ def build_report_payload(
     analysis_result: dict[str, Any],
     previous_scan: dict[str, Any] | None = None,
     *,
-    narrative_backend: str = "template",
+    narrative_backend: str = "gemini",
 ) -> dict[str, Any]:
     """Return the richer report payload when the report module is available.
 
