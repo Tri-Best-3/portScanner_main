@@ -1,19 +1,36 @@
+name: tribest-asm
+
 services:
   backend:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    container_name: mini-asm-backend
+    container_name: core-backend
+    labels:
+      tribest.group: core
+      tribest.role: backend
     environment:
       BACKEND_HOST: 0.0.0.0
       BACKEND_PORT: 8000
       BACKEND_SQLITE_PATH: /app/backend_data/app.db
+      ANALYSIS_USE_LIVE_NVD: ${ANALYSIS_USE_LIVE_NVD:-true}
+      ANALYSIS_USE_LIVE_KEV: ${ANALYSIS_USE_LIVE_KEV:-true}
+      ANALYSIS_USE_LIVE_EPSS: ${ANALYSIS_USE_LIVE_EPSS:-true}
+      ANALYSIS_REQUEST_TIMEOUT: ${ANALYSIS_REQUEST_TIMEOUT:-8.0}
+      NVD_API_KEY: ${NVD_API_KEY:-}
     ports:
       - "8000:8000"
     volumes:
       - backend-data:/app/backend_data
     depends_on:
       - db
+      - juice-shop
+      - tomcat-cve-2017-12615
+      - redis-4-unacc
+      - sambacry
+      - mysql-cve-2012-2122
+      - elasticsearch-cve-2015-1427
+      - vsftpd-2-3-4
     networks:
       lab-net:
         ipv4_address: 172.28.0.2
@@ -22,7 +39,10 @@ services:
     build:
       context: .
       dockerfile: dashboard/Dockerfile
-    container_name: mini-asm-dashboard
+    container_name: core-dashboard
+    labels:
+      tribest.group: core
+      tribest.role: dashboard
     environment:
       DASHBOARD_BACKEND_URL: http://backend:8000
     ports:
@@ -35,7 +55,10 @@ services:
 
   db:
     image: postgres:16-alpine
-    container_name: mini-asm-db
+    container_name: core-db
+    labels:
+      tribest.group: core
+      tribest.role: database
     environment:
       POSTGRES_DB: mini_asm
       POSTGRES_USER: mini_asm
@@ -48,49 +71,101 @@ services:
       lab-net:
         ipv4_address: 172.28.0.4
 
-  redis-vuln:
-    image: redis:7-alpine
-    container_name: mini-asm-redis-target
-    ports:
-      - "127.0.0.1:6379:6379"
+  juice-shop:
+    image: bkimminich/juice-shop:v18.0.0
+    container_name: vuln-juice-shop
+    labels:
+      tribest.group: vuln
+      tribest.role: webapp
+      tribest.target: juice-shop
     networks:
       lab-net:
-        ipv4_address: 172.28.0.20
+        ipv4_address: 172.28.0.11
+        aliases:
+          - juice-shop.lab.local
 
-  web-target:
-    image: nginx:1.27-alpine
-    container_name: mini-asm-web-target
-    ports:
-      - "8081:80"
+  tomcat-cve-2017-12615:
+    build:
+      context: ./targets/tomcat-cve-2017-12615
+    container_name: vuln-tomcat-cve-2017-12615
+    labels:
+      tribest.group: vuln
+      tribest.role: webapp
+      tribest.target: tomcat-cve-2017-12615
     networks:
       lab-net:
         ipv4_address: 172.28.0.10
+        aliases:
+          - tomcat-cve-2017-12615.lab.local
 
-  samba-vuln:
-    image: alpine:3.20
-    container_name: mini-asm-samba-target
-    command: ["sh", "-c", "while true; do sleep 3600; done"]
+  redis-4-unacc:
+    image: vulhub/redis:4.0.14
+    container_name: vuln-redis-4-unacc
+    labels:
+      tribest.group: vuln
+      tribest.role: datastore
+      tribest.target: redis-4-unacc
+    networks:
+      lab-net:
+        ipv4_address: 172.28.0.20
+        aliases:
+          - redis-4-unacc.lab.local
+
+  sambacry:
+    image: vulhub/samba:4.6.3
+    container_name: vuln-sambacry
+    labels:
+      tribest.group: vuln
+      tribest.role: fileshare
+      tribest.target: sambacry
+    tty: true
+    volumes:
+      - ./targets/sambacry/smb.conf:/usr/local/samba/etc/smb.conf:ro
     networks:
       lab-net:
         ipv4_address: 172.28.0.30
+        aliases:
+          - sambacry.lab.local
 
-  ssh-target:
-    image: alpine:3.20
-    container_name: mini-asm-ssh-target
-    command: ["sh", "-c", "while true; do sleep 3600; done"]
+  mysql-cve-2012-2122:
+    image: vulhub/mysql:5.5.23
+    container_name: vuln-mysql-cve-2012-2122
+    labels:
+      tribest.group: vuln
+      tribest.role: database
+      tribest.target: mysql-cve-2012-2122
     networks:
       lab-net:
-        ipv4_address: 172.28.0.40
+        ipv4_address: 172.28.0.60
+        aliases:
+          - mysql-cve-2012-2122.lab.local
 
-  other-service:
-    image: hashicorp/http-echo:1.0.0
-    container_name: mini-asm-other-target
-    command: ["-text=other-service"]
-    ports:
-      - "5678:5678"
+  elasticsearch-cve-2015-1427:
+    image: vulhub/elasticsearch:1.4.2
+    container_name: vuln-elasticsearch-cve-2015-1427
+    labels:
+      tribest.group: vuln
+      tribest.role: search
+      tribest.target: elasticsearch-cve-2015-1427
     networks:
       lab-net:
-        ipv4_address: 172.28.0.50
+        ipv4_address: 172.28.0.70
+        aliases:
+          - elasticsearch-cve-2015-1427.lab.local
+
+  vsftpd-2-3-4:
+    image: clintmint/vsftpd-2.3.4:1.0
+    container_name: vuln-vsftpd-2-3-4
+    labels:
+      tribest.group: vuln
+      tribest.role: ftp
+      tribest.target: vsftpd-2-3-4
+    command: sh -c "start-vsftpd && tail -f /dev/null"
+    networks:
+      lab-net:
+        ipv4_address: 172.28.0.80
+        aliases:
+          - vsftpd-2-3-4.lab.local
 
 volumes:
   backend-data:

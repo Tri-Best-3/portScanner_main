@@ -37,6 +37,37 @@ class Storage:
                 )
                 """
             )
+            report_columns = [row[1] for row in cursor.execute("PRAGMA table_info(reports)").fetchall()]
+            if report_columns and report_columns != ["scan_id", "payload", "created_at"]:
+                cursor.execute("ALTER TABLE reports RENAME TO reports_legacy")
+
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS reports (
+                    scan_id TEXT PRIMARY KEY,
+                    payload TEXT NOT NULL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            legacy_exists = cursor.execute(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='reports_legacy'"
+            ).fetchone()[0]
+            if legacy_exists:
+                rows = cursor.execute("SELECT payload FROM reports_legacy").fetchall()
+                for (raw_payload,) in rows:
+                    payload = json.loads(raw_payload)
+                    cursor.execute(
+                        """
+                        INSERT OR REPLACE INTO reports (scan_id, payload)
+                        VALUES (?, ?)
+                        """,
+                        (
+                            str(payload["scan_id"]),
+                            json.dumps(payload, ensure_ascii=False),
+                        ),
+                    )
+                cursor.execute("DROP TABLE reports_legacy")
             connection.commit()
 
     def save_scan(self, payload: dict[str, Any]) -> None:
@@ -74,6 +105,25 @@ class Storage:
         with sqlite3.connect(self.db_path) as connection:
             row = connection.execute(
                 "SELECT payload FROM analyses WHERE scan_id = ?",
+                (scan_id,),
+            ).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def save_report(self, payload: dict[str, Any]) -> None:
+        """Store a report payload keyed by scan id."""
+        scan_id = str(payload["scan_id"])
+        with sqlite3.connect(self.db_path) as connection:
+            connection.execute(
+                "INSERT OR REPLACE INTO reports (scan_id, payload) VALUES (?, ?)",
+                (scan_id, json.dumps(payload, ensure_ascii=False)),
+            )
+            connection.commit()
+
+    def get_report(self, scan_id: str) -> dict[str, Any] | None:
+        """Return a saved report payload when present."""
+        with sqlite3.connect(self.db_path) as connection:
+            row = connection.execute(
+                "SELECT payload FROM reports WHERE scan_id = ?",
                 (scan_id,),
             ).fetchone()
         return json.loads(row[0]) if row else None

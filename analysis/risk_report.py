@@ -22,6 +22,8 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Optional, Sequence
 
+import requests
+
 try:
     from dotenv import load_dotenv
 
@@ -29,7 +31,7 @@ try:
 except Exception:
     pass
 
-# from analysis.analyzer import AnalyzerConfig, analyze
+from analysis.analyzer import AnalyzerConfig, analyze
 from analysis.models import AnalysisResponse, DriftResult, PortScanResult, ScanResult, VulnerabilityFinding
 from analysis.risk_engine import (
     SEVERITY_WEIGHTS,
@@ -64,7 +66,9 @@ _PRIORITY_BY_SCORE = (
     (0, "info"),
 )
 
-_DEFAULT_GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+_DEFAULT_GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview")
+_DEFAULT_OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
+_DEFAULT_OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434")
 
 
 class GeminiUnavailableError(RuntimeError):
@@ -77,12 +81,15 @@ class NarrativeSchemaError(ValueError):
 
 def build_risk_report(
     scan_result: ScanResult | dict[str, Any],
-    analysis_response: AnalysisResponse | dict[str, Any],
+    analysis_response: Optional[AnalysisResponse | dict[str, Any]] = None,
     previous_scan: Optional[ScanResult | dict[str, Any]] = None,
+    analyzer_config: Optional[AnalyzerConfig] = None,
     *,
     narrative_backend: str = "auto",
     gemini_api_key: Optional[str] = None,
     gemini_model: Optional[str] = None,
+    ollama_base_url: Optional[str] = None,
+    ollama_model: Optional[str] = None,
 ) -> dict[str, Any]:
     """Build a narrative-ready combination risk report.
 
@@ -108,7 +115,9 @@ def build_risk_report(
     """
 
     current = _ensure_scan_result(scan_result)
-    analysis = _ensure_analysis_response(analysis_response)
+    analysis = _ensure_analysis_response(analysis_response) if analysis_response else analyze(
+        current, previous_scan=previous_scan, config=analyzer_config
+    )
 
     ports = list(current.scan.ports)
     deduped_findings = _deduplicate_findings(list(analysis.analysis.vulnerabilities))
@@ -138,6 +147,11 @@ def build_risk_report(
         final_score=final_score,
         grade=grade,
     )
+
+    # # JSON 출력용 - 불필요한 정보 제거
+    # narrative_ready_output = dict(narrative_ready)
+    # narrative_ready_output.pop("top_risk_findings", None)
+    # narrative_ready_output.pop("llm_ready_prompt_input", None)
 
     payload = {
         "report_type": "combination_risk_report",
@@ -181,6 +195,8 @@ def build_risk_report(
         backend=narrative_backend,
         gemini_api_key=gemini_api_key,
         gemini_model=gemini_model,
+        ollama_base_url=ollama_base_url,
+        ollama_model=ollama_model,
     )
     return payload
 
@@ -188,25 +204,92 @@ def build_risk_report(
 def write_risk_report(
     output_path: str,
     scan_result: ScanResult | dict[str, Any],
-    analysis_response: AnalysisResponse | dict[str, Any],
+    analysis_response: Optional[AnalysisResponse | dict[str, Any]] = None,
     previous_scan: Optional[ScanResult | dict[str, Any]] = None,
+    analyzer_config: Optional[AnalyzerConfig] = None,
     *,
     narrative_backend: str = "auto",
     gemini_api_key: Optional[str] = None,
     gemini_model: Optional[str] = None,
+    ollama_base_url: Optional[str] = None,
+    ollama_model: Optional[str] = None,
 ) -> dict[str, Any]:
     """Build the report and write it to disk as formatted JSON."""
     payload = build_risk_report(
         scan_result=scan_result,
         analysis_response=analysis_response,
         previous_scan=previous_scan,
+        analyzer_config=analyzer_config,
         narrative_backend=narrative_backend,
         gemini_api_key=gemini_api_key,
         gemini_model=gemini_model,
+        ollama_base_url=ollama_base_url,
+        ollama_model=ollama_model,
     )
     with open(output_path, "w", encoding="utf-8") as fh:
         json.dump(payload, fh, ensure_ascii=False, indent=2)
     return payload
+
+
+# 테스트용 더미 데이터
+
+def build_demo_payload(
+    *,
+    narrative_backend: str = "auto",
+    gemini_api_key: Optional[str] = None,
+    gemini_model: Optional[str] = None,
+    ollama_base_url: Optional[str] = None,
+    ollama_model: Optional[str] = None,
+) -> dict[str, Any]:
+    """Return a self-contained demo report with mock scan values."""
+    demo_scan = {
+        "scan_id": "scan-demo-001",
+        "target": {"input_value": "demo.lab.local", "resolved_ip": "172.30.0.12"},
+        "scan": {
+            "started_at": "2026-03-11T16:10:00+09:00",
+            "ports": [
+                {
+                    "port": 22,
+                    "protocol": "tcp",
+                    "service": {"name": "ssh", "product": "OpenSSH", "version": "8.9p1"},
+                },
+                {
+                    "port": 6379,
+                    "protocol": "tcp",
+                    "service": {"name": "redis", "product": "Redis", "version": "4.0.14"},
+                },
+                {
+                    "port": 9200,
+                    "protocol": "tcp",
+                    "service": {
+                        "name": "http",
+                        "product": "Elasticsearch",
+                        "version": "7.10.0",
+                    },
+                },
+            ],
+            "logs": [
+                {
+                    "source": "nmap",
+                    "phase": "service_detection",
+                    "command": "nmap -sV demo.lab.local",
+                    "started_at": "2026-03-11T16:10:00+09:00",
+                    "finished_at": "2026-03-11T16:10:04+09:00",
+                    "return_code": 0,
+                    "stdout": "mock nmap output",
+                    "stderr": "",
+                }
+            ],
+        },
+    }
+    return build_risk_report(
+        demo_scan,
+        narrative_backend=narrative_backend,
+        gemini_api_key=gemini_api_key,
+        gemini_model=gemini_model,
+        ollama_base_url=ollama_base_url,
+        ollama_model=ollama_model,
+    )
 
 
 def _build_narrative_section(
@@ -215,13 +298,37 @@ def _build_narrative_section(
     backend: str = "auto",
     gemini_api_key: Optional[str] = None,
     gemini_model: Optional[str] = None,
+    ollama_base_url: Optional[str] = None,
+    ollama_model: Optional[str] = None,
 ) -> dict[str, Any]:
     backend = (backend or "auto").lower()
     effective_key = gemini_api_key or os.getenv("GEMINI_API_KEY")
     effective_model = gemini_model or os.getenv("GEMINI_MODEL") or _DEFAULT_GEMINI_MODEL
+    effective_ollama_base_url = ollama_base_url or _DEFAULT_OLLAMA_BASE_URL
+    effective_ollama_model = ollama_model or _DEFAULT_OLLAMA_MODEL
 
     if backend == "template":
         return _generate_narrative_with_template(narrative_ready)
+
+    if backend == "ollama":
+        try:
+            return _generate_narrative_with_ollama(
+                narrative_ready,
+                base_url=effective_ollama_base_url,
+                model=effective_ollama_model,
+            )
+        except Exception as exc:
+            template = _generate_narrative_with_template(narrative_ready)
+            template.update(
+                {
+                    "backend": "template",
+                    "model": None,
+                    "language": "ko",
+                    "generated": False,
+                    "fallback_reason": str(exc),
+                }
+            )
+            return template
 
     if backend not in {"auto", "gemini"}:
         template = _generate_narrative_with_template(narrative_ready)
@@ -272,6 +379,10 @@ def _generate_narrative_with_gemini(
         "rules": [
             "반드시 한국어로만 작성할 것.",
             "제공된 facts 밖의 CVE, 공격 단계, 제품 정보는 추측하지 말 것.",
+            "full_briefing은 실제 취약점 보고서의 본문처럼 2~3개 문단, 최소 6문장 이상의 자연스러운 서술형 글로 작성할 것.",
+            "첫 문단은 현재 노출 상태와 가장 중요한 위험 신호를 요약하고, 둘째 문단은 왜 위험한지와 가능한 악용 시나리오를 설명하고, 마지막 문단은 우선 대응 방향을 정리할 것.",
+            "문장마다 facts에 있는 포트, 서비스명, 취약점 제목, drift 정보를 근거로 사용할 것.",
+            "너무 짧은 bullet 요약처럼 쓰지 말고, 문장과 문장을 자연스럽게 이어서 작성할 것.",
             "summary는 1문장으로 작성할 것.",
             "risk_explanation은 2~4개의 짧은 문장 리스트로 작성할 것.",
             "recommended_action은 2~4개의 짧은 조치 항목 리스트로 작성할 것.",
@@ -280,6 +391,7 @@ def _generate_narrative_with_gemini(
         ],
         "input": prompt_input,
         "output_schema": {
+            "full_briefing": "string",
             "summary": "string",
             "risk_explanation": ["string"],
             "recommended_action": ["string"],
@@ -309,9 +421,12 @@ def _generate_narrative_with_gemini(
         raise NarrativeSchemaError("Gemini response root must be a JSON object")
 
     summary = parsed.get("summary")
+    full_briefing = parsed.get("full_briefing")
     risk_explanation = parsed.get("risk_explanation")
     recommended_action = parsed.get("recommended_action")
 
+    if not isinstance(full_briefing, str) or not full_briefing.strip():
+        raise NarrativeSchemaError("full_briefing must be a non-empty string")
     if not isinstance(summary, str) or not summary.strip():
         raise NarrativeSchemaError("summary must be a non-empty string")
     if not isinstance(risk_explanation, list) or not all(isinstance(x, str) for x in risk_explanation):
@@ -324,9 +439,88 @@ def _generate_narrative_with_gemini(
         "model": model,
         "language": "ko",
         "generated": True,
+        "full_briefing": full_briefing.strip(),
         "summary": summary.strip(),
         "risk_explanation": [x.strip() for x in risk_explanation if x and x.strip()][:4],
         "recommended_action": [x.strip() for x in recommended_action if x and x.strip()][:4],
+        "raw_response": text,
+    }
+
+
+def _generate_narrative_with_ollama(
+    narrative_ready: dict[str, Any],
+    *,
+    base_url: str,
+    model: str,
+) -> dict[str, Any]:
+    prompt_input = narrative_ready["llm_ready_prompt_input"]
+    prompt = {
+        "task": "보안 위험 요약 생성",
+        "language": "ko",
+        "rules": [
+            "반드시 한국어로만 작성할 것.",
+            "제공된 facts 밖의 CVE, 공격 단계, 제품 정보는 추측하지 말 것.",
+            "full_briefing은 실제 취약점 보고서의 본문처럼 2~3개 문단, 최소 6문장 이상의 자연스러운 서술형 글로 작성할 것.",
+            "첫 문단은 현재 노출 상태와 핵심 위험 요약, 둘째 문단은 위험 근거와 가능한 악용 시나리오, 마지막 문단은 우선 조치 방향을 설명할 것.",
+            "문장마다 facts에 있는 포트, 서비스명, 취약점 제목, drift 정보를 근거로 사용할 것.",
+            "너무 짧은 bullet 요약처럼 쓰지 말고, 문장과 문장을 자연스럽게 이어서 작성할 것.",
+            "summary는 1문장으로 작성할 것.",
+            "risk_explanation은 2~4개의 짧은 문장 리스트로 작성할 것.",
+            "recommended_action은 2~4개의 짧은 조치 항목 리스트로 작성할 것.",
+        ],
+        "input": prompt_input,
+        "output_schema": {
+            "full_briefing": "string",
+            "summary": "string",
+            "risk_explanation": ["string"],
+            "recommended_action": ["string"],
+        },
+    }
+
+    response = requests.post(
+        f"{base_url.rstrip('/')}/api/generate",
+        json={
+            "model": model,
+            "prompt": json.dumps(prompt, ensure_ascii=False),
+            "format": "json",
+            "stream": False,
+        },
+        timeout=120,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    text = payload.get("response")
+    if not isinstance(text, str) or not text.strip():
+        raise NarrativeSchemaError("Ollama returned an empty response")
+
+    try:
+        parsed = json.loads(text)
+    except Exception as exc:
+        raise NarrativeSchemaError("Ollama response was not valid JSON") from exc
+
+    full_briefing = parsed.get("full_briefing")
+    summary = parsed.get("summary")
+    risk_explanation = parsed.get("risk_explanation")
+    recommended_action = parsed.get("recommended_action")
+    if not isinstance(full_briefing, str) or not full_briefing.strip():
+        raise NarrativeSchemaError("full_briefing must be a non-empty string")
+    if not isinstance(summary, str) or not summary.strip():
+        raise NarrativeSchemaError("summary must be a non-empty string")
+    if not isinstance(risk_explanation, list) or not all(isinstance(x, str) for x in risk_explanation):
+        raise NarrativeSchemaError("risk_explanation must be a list of strings")
+    if not isinstance(recommended_action, list) or not all(isinstance(x, str) for x in recommended_action):
+        raise NarrativeSchemaError("recommended_action must be a list of strings")
+
+    return {
+        "backend": "ollama",
+        "model": model,
+        "language": "ko",
+        "generated": True,
+        "full_briefing": full_briefing.strip(),
+        "summary": summary.strip(),
+        "risk_explanation": [x.strip() for x in risk_explanation if x and x.strip()][:4],
+        "recommended_action": [x.strip() for x in recommended_action if x and x.strip()][:4],
+        "raw_response": text,
     }
 
 
@@ -384,21 +578,52 @@ def _generate_narrative_with_template(narrative_ready: dict[str, Any]) -> dict[s
 
     top_titles = [item.get("title") for item in top_findings if item.get("title")]
     top_titles_text = ", ".join(top_titles[:2]) if top_titles else "주요 노출 서비스"
+    primary_service_text = ", ".join(services) if services else "주요 서비스"
+    impact_line = (
+        f"특히 {top_titles_text} 신호는 단순 포트 개방을 넘어 실제 악용 가능성이 높은 구성 또는 알려진 취약 동작과 연결될 수 있어, "
+        f"현재 자산을 외부 노출 상태로 둘 경우 우선순위 높은 대응이 필요합니다."
+    )
+    attack_line = (
+        f"현재 관찰된 서비스 조합은 {primary_service_text} 중심으로 구성되어 있으며, 공격자는 노출된 포트와 식별된 서비스 정보를 바탕으로 "
+        f"인증 우회, 원격 코드 실행, 데이터 접근 같은 후속 시도를 검토할 가능성이 있습니다."
+    )
+    action_line = (
+        "따라서 우선 외부 노출 범위를 줄이고, 불필요한 포트를 닫고, 서비스별 접근 통제와 설정 점검을 먼저 수행한 뒤 "
+        "필요 시 버전 업그레이드와 취약 구성 제거까지 이어가는 것이 바람직합니다."
+    )
 
     summary = (
         f"{target} 대상에서 {top_titles_text} 기반 위험 신호가 확인되었으며, "
         f"최종 조합 위험도는 {final_score}점({final_grade})으로 평가되었습니다."
     )
+    detail_lines = [
+        f"{target} 대상에서 {primary_service_text} 노출이 확인되었고, 현재 위험도는 {final_score}점({final_grade})으로 평가되었습니다.",
+    ]
+    if top_titles:
+        detail_lines.append(f"주요 위험 신호는 {top_titles_text} 중심으로 정리되며, 이번 결과에서는 서비스 식별과 포트 노출 근거가 함께 확인되었습니다.")
+    if new_ports:
+        detail_lines.append(f"이전 스캔과 비교해 새로 열린 포트는 {', '.join(map(str, new_ports))} 이며, 이는 최근 노출면이 확장되었을 가능성을 시사합니다.")
+    if closed_ports:
+        detail_lines.append(f"반대로 닫힌 포트는 {', '.join(map(str, closed_ports))} 이며, 기존 노출 상태 일부가 변경된 것으로 보입니다.")
+    detail_lines.append(impact_line)
+    detail_lines.append(attack_line)
+    detail_lines.append(action_line)
 
     return {
         "backend": "template",
         "model": None,
         "language": "ko",
-        "generated": True,
+        "generated": False,
+        "full_briefing": "\n\n".join([
+            " ".join(detail_lines[:2]).strip(),
+            " ".join(detail_lines[2:4]).strip() if len(detail_lines) > 3 else "",
+            " ".join(detail_lines[4:]).strip(),
+        ]).strip(),
         "summary": summary,
         "risk_explanation": risk_explanation[:4],
         "recommended_action": recommended_action[:4],
         "fallback_reason": None,
+        "raw_response": None,
     }
 
 
@@ -645,3 +870,16 @@ def _ensure_analysis_response(value: AnalysisResponse | dict[str, Any]) -> Analy
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+if __name__ == "__main__":
+    import sys
+
+    output = sys.argv[1] if len(sys.argv) > 1 else None
+    backend = sys.argv[2] if len(sys.argv) > 2 else "auto"
+    payload = build_demo_payload(narrative_backend=backend)
+    if output:
+        with open(output, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, ensure_ascii=False, indent=2)
+    else:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))

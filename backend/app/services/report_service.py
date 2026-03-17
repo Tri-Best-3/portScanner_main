@@ -18,16 +18,14 @@ def build_report_payload(
     previous_scan: dict[str, Any] | None = None,
     *,
     narrative_backend: str = "template",
+    gemini_api_key: str | None = None,
+    gemini_model: str | None = None,
+    ollama_base_url: str | None = None,
+    ollama_model: str | None = None,
 ) -> dict[str, Any]:
-    """Return the richer report payload when the report module is available.
-
-    The report module is owned separately and may not exist in this checkout yet.
-    In that case, keep the backend usable by falling back to the analysis payload.
-    """
-    try:
-        module = importlib.import_module("analysis.risk_report")
-        builder = getattr(module, "build_risk_report")
-    except (ImportError, AttributeError):
+    """Return the richer report payload when the report module is available."""
+    builder = _load_report_builder()
+    if builder is None:
         LOGGER.info("report module is not available yet; using analysis payload fallback")
         return analysis_result
 
@@ -36,6 +34,10 @@ def build_report_payload(
         analysis_response=analysis_result,
         previous_scan=previous_scan,
         narrative_backend=narrative_backend,
+        gemini_api_key=gemini_api_key,
+        gemini_model=gemini_model,
+        ollama_base_url=ollama_base_url,
+        ollama_model=ollama_model,
     )
 
 
@@ -78,6 +80,16 @@ def build_report_bundle(scan_id: str, payload: dict[str, Any]) -> dict[str, str]
         "csv": csv_buffer.getvalue(),
         "html": html,
     }
+
+
+def _load_report_builder():
+    for module_name in ("report.risk_report", "analysis.risk_report"):
+        try:
+            module = importlib.import_module(module_name)
+            return getattr(module, "build_risk_report")
+        except (ImportError, AttributeError):
+            continue
+    return None
 
 
 def _extract_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:

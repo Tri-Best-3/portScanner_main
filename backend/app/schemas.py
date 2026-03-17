@@ -9,7 +9,8 @@ from pydantic import BaseModel, Field
 
 class ScanRequest(BaseModel):
     target: str = Field(..., min_length=1)
-    profile: Literal["quick", "web", "redis", "mixed"] = "mixed"
+    profile: Literal["quick", "common", "deep", "full", "web"] = "common"
+    scenario: str | None = None
 
 
 class AnalyzeRequest(BaseModel):

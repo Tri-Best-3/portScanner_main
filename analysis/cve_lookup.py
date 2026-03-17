@@ -19,6 +19,7 @@ class NvdLookupConfig:
     timeout: float = 5.0
     max_results: int = 5
     base_url: str = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+    api_key: str | None = None
 
 
 _OFFLINE_CATALOG: list[dict[str, Any]] = [
@@ -39,12 +40,44 @@ _OFFLINE_CATALOG: list[dict[str, Any]] = [
         "match_confidence": 0.96,
     },
     {
-        "product": "samba",
-        "version_prefix": "4.15",
-        "title": "Samba vfs_fruit heap out-of-bounds vulnerability",
-        "cve_id": "CVE-2021-44142",
+        "product": "apache tomcat",
+        "version_prefix": "8.5.19",
+        "title": "Apache Tomcat PUT JSP Upload vulnerability",
+        "cve_id": "CVE-2017-12615",
         "severity": "critical",
-        "match_confidence": 0.9,
+        "match_confidence": 0.96,
+    },
+    {
+        "product": "samba smbd",
+        "version_prefix": "3.x - 4.x",
+        "title": "Samba remote code execution vulnerability",
+        "cve_id": "CVE-2017-7494",
+        "severity": "critical",
+        "match_confidence": 0.95,
+    },
+    {
+        "product": "mysql",
+        "version_prefix": "5.5.23",
+        "title": "MySQL authentication bypass vulnerability",
+        "cve_id": "CVE-2012-2122",
+        "severity": "critical",
+        "match_confidence": 0.95,
+    },
+    {
+        "product": "elasticsearch rest api",
+        "version_prefix": "1.4.2",
+        "title": "Elasticsearch Groovy sandbox escape vulnerability",
+        "cve_id": "CVE-2015-1427",
+        "severity": "critical",
+        "match_confidence": 0.95,
+    },
+    {
+        "product": "vsftpd",
+        "version_prefix": "2.3.4",
+        "title": "vsftpd backdoor command execution vulnerability",
+        "cve_id": "CVE-2011-2523",
+        "severity": "critical",
+        "match_confidence": 0.95,
     },
 ]
 
@@ -76,6 +109,7 @@ def _lookup_cves_live(
     response = client.get(
         config.base_url,
         params={"keywordSearch": keyword, "resultsPerPage": config.max_results},
+        headers={"apiKey": config.api_key} if config.api_key else None,
         timeout=config.timeout,
     )
     response.raise_for_status()

@@ -34,9 +34,10 @@ def test_analyze_returns_expected_misconfiguration_findings() -> None:
     result = analyze(SAMPLE_SCAN).to_dict()
 
     assert result["scan_id"] == "scan-001"
-    assert result["analysis"]["risk_summary"] == {"score": 82, "grade": "high"}
+    assert result["analysis"]["risk_summary"] == {"score": 100, "grade": "critical"}
     titles = {item["title"] for item in result["analysis"]["vulnerabilities"]}
     assert "Redis Unauthorized Access" in titles
+    assert "Redis Replication Abuse RCE Risk" in titles
     assert "SSH Service Exposure" in titles
     assert result["drift"] == {"new_ports": [], "closed_ports": []}
 
@@ -76,7 +77,7 @@ def test_analyze_supports_planned_service_rules() -> None:
     titles = {item["title"] for item in result["analysis"]["vulnerabilities"]}
 
     assert "FTP Plaintext Service Exposure" in titles
-    assert "Samba Service Exposure" in titles
+    assert "SambaCry Remote Code Execution Risk" in titles
     assert "Database Service Exposure" in titles
     assert "Elasticsearch Unauthorized Access Risk" in titles
     assert result["analysis"]["risk_summary"]["grade"] == "critical"
@@ -176,4 +177,4 @@ def test_live_cve_lookup_falls_back_to_offline_catalog() -> None:
     ).to_dict()
 
     assert result["analysis"]["risk_summary"]["score"] >= 35
-    assert result["analysis"]["vulnerabilities"][0]["cve_id"] == "CVE-2021-23017"
+    assert any(item.get("cve_id") == "CVE-2021-23017" for item in result["analysis"]["vulnerabilities"])
