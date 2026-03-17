@@ -1,4 +1,4 @@
-"""Simple SQLite storage for scaffold-level persistence."""
+"""SQLite storage for scans, analyses, reports, runs, inventories, and verifications."""
 
 from __future__ import annotations
 
@@ -9,14 +9,17 @@ from typing import Any
 
 
 class Storage:
-    """Persist scan and analysis payloads in SQLite."""
+    """Persist backend payloads in SQLite."""
 
     def __init__(self, db_path: Path) -> None:
         self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
+    def _connect(self) -> sqlite3.Connection:
+        return sqlite3.connect(self.db_path, timeout=30)
+
     def initialize(self) -> None:
-        with sqlite3.connect(self.db_path) as connection:
+        with self._connect() as connection:
             cursor = connection.cursor()
             cursor.execute(
                 """
@@ -37,10 +40,6 @@ class Storage:
                 )
                 """
             )
-            report_columns = [row[1] for row in cursor.execute("PRAGMA table_info(reports)").fetchall()]
-            if report_columns and report_columns != ["scan_id", "payload", "created_at"]:
-                cursor.execute("ALTER TABLE reports RENAME TO reports_legacy")
-
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS reports (
@@ -50,96 +49,169 @@ class Storage:
                 )
                 """
             )
-            legacy_exists = cursor.execute(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='reports_legacy'"
-            ).fetchone()[0]
-            if legacy_exists:
-                rows = cursor.execute("SELECT payload FROM reports_legacy").fetchall()
-                for (raw_payload,) in rows:
-                    payload = json.loads(raw_payload)
-                    cursor.execute(
-                        """
-                        INSERT OR REPLACE INTO reports (scan_id, payload)
-                        VALUES (?, ?)
-                        """,
-                        (
-                            str(payload["scan_id"]),
-                            json.dumps(payload, ensure_ascii=False),
-                        ),
-                    )
-                cursor.execute("DROP TABLE reports_legacy")
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS runs (
+                    run_id TEXT PRIMARY KEY,
+                    payload TEXT NOT NULL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS inventories (
+                    inventory_id TEXT PRIMARY KEY,
+                    scope TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS verifications (
+                    verification_id TEXT PRIMARY KEY,
+                    scan_id TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
             connection.commit()
 
     def save_scan(self, payload: dict[str, Any]) -> None:
-        """Store a scan payload keyed by its scan id."""
         scan_id = str(payload["scan_id"])
         target = str(payload.get("target", {}).get("input_value", "unknown"))
-        with sqlite3.connect(self.db_path) as connection:
+        with self._connect() as connection:
             connection.execute(
                 "INSERT OR REPLACE INTO scans (scan_id, target, payload) VALUES (?, ?, ?)",
-                (scan_id, target, json.dumps(payload, ensure_ascii=False)),
+                (scan_id, target, json.dumps(payload, ensure_ascii=False, default=str)),
             )
             connection.commit()
 
     def save_analysis(self, payload: dict[str, Any]) -> None:
-        """Store an analysis payload keyed by its scan id."""
         scan_id = str(payload["scan_id"])
-        with sqlite3.connect(self.db_path) as connection:
+        with self._connect() as connection:
             connection.execute(
                 "INSERT OR REPLACE INTO analyses (scan_id, payload) VALUES (?, ?)",
-                (scan_id, json.dumps(payload, ensure_ascii=False)),
+                (scan_id, json.dumps(payload, ensure_ascii=False, default=str)),
+            )
+            connection.commit()
+
+    def save_report(self, payload: dict[str, Any]) -> None:
+        scan_id = str(payload["scan_id"])
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT OR REPLACE INTO reports (scan_id, payload) VALUES (?, ?)",
+                (scan_id, json.dumps(payload, ensure_ascii=False, default=str)),
+            )
+            connection.commit()
+
+    def save_run(self, payload: dict[str, Any]) -> None:
+        run_id = str(payload["run_id"])
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT OR REPLACE INTO runs (run_id, payload) VALUES (?, ?)",
+                (run_id, json.dumps(payload, ensure_ascii=False, default=str)),
+            )
+            connection.commit()
+
+    def save_inventory(self, payload: dict[str, Any]) -> None:
+        inventory_id = str(payload["inventory_id"])
+        scope = str(payload["scope"])
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT OR REPLACE INTO inventories (inventory_id, scope, payload) VALUES (?, ?, ?)",
+                (inventory_id, scope, json.dumps(payload, ensure_ascii=False, default=str)),
+            )
+            connection.commit()
+
+    def save_verification(self, payload: dict[str, Any]) -> None:
+        verification_id = str(payload["verification_id"])
+        scan_id = str(payload["scan_id"])
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT OR REPLACE INTO verifications (verification_id, scan_id, payload) VALUES (?, ?, ?)",
+                (verification_id, scan_id, json.dumps(payload, ensure_ascii=False, default=str)),
             )
             connection.commit()
 
     def get_scan(self, scan_id: str) -> dict[str, Any] | None:
-        """Return a saved scan payload when present."""
-        with sqlite3.connect(self.db_path) as connection:
-            row = connection.execute(
-                "SELECT payload FROM scans WHERE scan_id = ?",
-                (scan_id,),
-            ).fetchone()
+        with self._connect() as connection:
+            row = connection.execute("SELECT payload FROM scans WHERE scan_id = ?", (scan_id,)).fetchone()
         return json.loads(row[0]) if row else None
 
     def get_analysis(self, scan_id: str) -> dict[str, Any] | None:
-        """Return a saved analysis payload when present."""
-        with sqlite3.connect(self.db_path) as connection:
-            row = connection.execute(
-                "SELECT payload FROM analyses WHERE scan_id = ?",
-                (scan_id,),
-            ).fetchone()
+        with self._connect() as connection:
+            row = connection.execute("SELECT payload FROM analyses WHERE scan_id = ?", (scan_id,)).fetchone()
         return json.loads(row[0]) if row else None
-
-    def save_report(self, payload: dict[str, Any]) -> None:
-        """Store a report payload keyed by scan id."""
-        scan_id = str(payload["scan_id"])
-        with sqlite3.connect(self.db_path) as connection:
-            connection.execute(
-                "INSERT OR REPLACE INTO reports (scan_id, payload) VALUES (?, ?)",
-                (scan_id, json.dumps(payload, ensure_ascii=False)),
-            )
-            connection.commit()
 
     def get_report(self, scan_id: str) -> dict[str, Any] | None:
-        """Return a saved report payload when present."""
-        with sqlite3.connect(self.db_path) as connection:
+        with self._connect() as connection:
+            row = connection.execute("SELECT payload FROM reports WHERE scan_id = ?", (scan_id,)).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def get_run(self, run_id: str) -> dict[str, Any] | None:
+        with self._connect() as connection:
+            row = connection.execute("SELECT payload FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def get_inventory(self, inventory_id: str) -> dict[str, Any] | None:
+        with self._connect() as connection:
             row = connection.execute(
-                "SELECT payload FROM reports WHERE scan_id = ?",
-                (scan_id,),
+                "SELECT payload FROM inventories WHERE inventory_id = ?",
+                (inventory_id,),
             ).fetchone()
         return json.loads(row[0]) if row else None
 
+    def list_verifications(self, scan_id: str) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT payload
+                FROM verifications
+                WHERE scan_id = ?
+                ORDER BY created_at DESC
+                """,
+                (scan_id,),
+            ).fetchall()
+        return [json.loads(row[0]) for row in rows]
+
     def list_scans(self, limit: int = 20) -> list[dict[str, Any]]:
-        """List recent scans for dashboard display."""
-        with sqlite3.connect(self.db_path) as connection:
+        with self._connect() as connection:
             rows = connection.execute(
                 "SELECT scan_id, target, created_at FROM scans ORDER BY created_at DESC LIMIT ?",
                 (limit,),
             ).fetchall()
         return [{"scan_id": row[0], "target": row[1], "created_at": row[2]} for row in rows]
 
+    def list_runs(self, limit: int = 20) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT run_id, payload, created_at FROM runs ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [
+            {
+                "run_id": row[0],
+                "created_at": row[2],
+                "status": json.loads(row[1]).get("status"),
+                "item_count": len(json.loads(row[1]).get("items", [])),
+            }
+            for row in rows
+        ]
+
+    def list_inventories(self, limit: int = 20) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT inventory_id, scope, created_at FROM inventories ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [{"inventory_id": row[0], "scope": row[1], "created_at": row[2]} for row in rows]
+
     def get_previous_scan_for_target(self, target: str, current_scan_id: str) -> dict[str, Any] | None:
-        """Return the most recent prior scan for the same target."""
-        with sqlite3.connect(self.db_path) as connection:
+        with self._connect() as connection:
             row = connection.execute(
                 """
                 SELECT payload
@@ -149,5 +221,19 @@ class Storage:
                 LIMIT 1
                 """,
                 (target, current_scan_id),
+            ).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def get_previous_inventory_for_scope(self, scope: str, current_inventory_id: str) -> dict[str, Any] | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT payload
+                FROM inventories
+                WHERE scope = ? AND inventory_id != ?
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (scope, current_inventory_id),
             ).fetchone()
         return json.loads(row[0]) if row else None

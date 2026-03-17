@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
 import logging
 from typing import Any
+from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,7 +14,20 @@ import requests
 
 from analysis.analyzer import AnalyzerConfig, analyze
 from backend.app.config import settings
-from backend.app.schemas import AnalyzeRequest, ReportResponse, ScanRequest, WorkflowResponse
+from backend.app.schemas import (
+    AnalyzeRequest,
+    BatchScanRequest,
+    InventoryRunRequest,
+    InventoryRunResponse,
+    ReportResponse,
+    ScanRequest,
+    VerificationRecordRequest,
+    VerificationRecordResponse,
+    WorkflowBatchItem,
+    WorkflowBatchResponse,
+    WorkflowResponse,
+)
+from backend.app.services.inventory_service import calculate_inventory_drift, run_inventory
 from backend.app.services.report_service import build_report_bundle, build_report_payload
 from backend.app.services.scenario_service import list_scenarios, run_scenario
 from backend.app.storage import Storage
@@ -48,6 +64,19 @@ def health() -> dict[str, str]:
 @app.get("/api/v1/scans")
 def list_scans() -> dict[str, list[dict[str, Any]]]:
     return {"items": storage.list_scans()}
+
+
+@app.get("/api/v1/runs")
+def list_runs() -> dict[str, list[dict[str, Any]]]:
+    return {"items": storage.list_runs()}
+
+
+@app.get("/api/v1/runs/{run_id}")
+def get_run(run_id: str) -> dict[str, Any]:
+    run_payload = storage.get_run(run_id)
+    if run_payload is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    return run_payload
 
 
 @app.get("/api/v1/ai/ollama/models")
@@ -128,14 +157,110 @@ def _run_workflow(payload: ScanRequest) -> WorkflowResponse:
     return WorkflowResponse(scan_result=scan_result, analysis_result=analysis_result)
 
 
+def _run_single_target_batch_item(target: str, profile: str, scenario: str | None) -> WorkflowBatchItem:
+    try:
+        workflow = _run_workflow(ScanRequest(target=target, profile=profile, scenario=scenario))
+        return WorkflowBatchItem(
+            target=target,
+            status="completed",
+            scan_id=workflow.scan_result["scan_id"],
+        )
+    except Exception as exc:
+        LOGGER.exception("Batch workflow failed for target %s", target)
+        return WorkflowBatchItem(target=target, status="failed", error=str(exc))
+
+
 @app.post("/api/v1/workflows/run", response_model=WorkflowResponse)
 def run_workflow(payload: ScanRequest) -> WorkflowResponse:
     return _run_workflow(payload)
 
 
+@app.post("/api/v1/workflows/run-batch", response_model=WorkflowBatchResponse)
+def run_batch_workflow(payload: BatchScanRequest) -> WorkflowBatchResponse:
+    run_id = f"run-{uuid4().hex[:8]}"
+    items: list[WorkflowBatchItem] = []
+    with ThreadPoolExecutor(max_workers=payload.max_concurrency) as executor:
+        futures = {
+            executor.submit(_run_single_target_batch_item, target, payload.profile, payload.scenario): target
+            for target in payload.targets
+        }
+        for future in as_completed(futures):
+            items.append(future.result())
+
+    items.sort(key=lambda item: payload.targets.index(item.target))
+    statuses = {item.status for item in items}
+    if statuses == {"completed"}:
+        status = "completed"
+    elif statuses == {"failed"}:
+        status = "failed"
+    else:
+        status = "partial_failed"
+
+    run_payload = {
+        "run_id": run_id,
+        "requested_targets": payload.targets,
+        "profile": payload.profile,
+        "scenario": payload.scenario,
+        "status": status,
+        "items": [item.model_dump(exclude_none=True) for item in items],
+    }
+    storage.save_run(run_payload)
+    return WorkflowBatchResponse(run_id=run_id, status=status, items=items)
+
+
 @app.post("/api/v1/workflows/demo", response_model=WorkflowResponse, deprecated=True)
 def run_demo_workflow(payload: ScanRequest) -> WorkflowResponse:
     return _run_workflow(payload)
+
+
+@app.get("/api/v1/inventories")
+def list_inventories() -> dict[str, list[dict[str, Any]]]:
+    return {"items": storage.list_inventories()}
+
+
+@app.get("/api/v1/inventories/{inventory_id}")
+def get_inventory(inventory_id: str) -> dict[str, Any]:
+    inventory_payload = storage.get_inventory(inventory_id)
+    if inventory_payload is None:
+        raise HTTPException(status_code=404, detail="inventory not found")
+    return inventory_payload
+
+
+@app.post("/api/v1/inventories/run", response_model=InventoryRunResponse)
+def run_inventory_endpoint(payload: InventoryRunRequest) -> InventoryRunResponse:
+    inventory_result = run_inventory(payload.scope, profile=payload.profile)
+    previous_inventory = storage.get_previous_inventory_for_scope(payload.scope, inventory_result.inventory_id)
+    if previous_inventory is not None:
+        previous_hosts = previous_inventory.get("hosts", [])
+        inventory_result.drift = calculate_inventory_drift(inventory_result.hosts, previous_hosts)
+    inventory_payload = inventory_result.model_dump(mode="json")
+    storage.save_inventory(inventory_payload)
+    return InventoryRunResponse(**inventory_payload)
+
+
+@app.get("/api/v1/verifications/{scan_id}")
+def list_verification_records(scan_id: str) -> dict[str, list[dict[str, Any]]]:
+    return {"items": storage.list_verifications(scan_id)}
+
+
+@app.post("/api/v1/verifications", response_model=VerificationRecordResponse)
+def create_verification_record(payload: VerificationRecordRequest) -> VerificationRecordResponse:
+    if storage.get_scan(payload.scan_id) is None:
+        raise HTTPException(status_code=404, detail="scan not found")
+
+    verification = VerificationRecordResponse(
+        verification_id=f"verify-{uuid4().hex[:8]}",
+        scan_id=payload.scan_id,
+        template_id=payload.template_id,
+        method=payload.method,
+        status=payload.status,
+        target=payload.target,
+        evidence=payload.evidence,
+        raw_output=payload.raw_output,
+        created_at=datetime.now(timezone.utc),
+    )
+    storage.save_verification(verification.model_dump(mode="json"))
+    return verification
 
 
 def _generate_report_payload(
