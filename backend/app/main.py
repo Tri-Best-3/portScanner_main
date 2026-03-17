@@ -13,7 +13,7 @@ from analysis.analyzer import AnalyzerConfig, analyze
 from backend.app.config import settings
 from backend.app.schemas import AnalyzeRequest, ReportResponse, ScanRequest, WorkflowResponse
 from backend.app.services.report_service import build_report_bundle, build_report_payload
-from backend.app.services.scenario_service import list_scenarios, validate_scenario
+from backend.app.services.scenario_service import list_scenarios, run_scenario
 from backend.app.storage import Storage
 from scanner.scan import run_scan
 
@@ -91,8 +91,8 @@ def get_analysis(scan_id: str) -> dict[str, Any]:
 @app.post("/api/v1/scans/run")
 def run_scan_endpoint(payload: ScanRequest) -> dict[str, Any]:
     if payload.scenario:
-        scenario = validate_scenario(payload.scenario)
-        LOGGER.info("Scenario requested for scan only: %s", scenario["name"])
+        scenario_result = run_scenario(payload.scenario, payload.target)
+        LOGGER.info("Scenario executed for scan: %s", scenario_result["name"])
     scan_result = run_scan(payload.target, profile=payload.profile)
     storage.save_scan(scan_result)
     return scan_result
@@ -111,8 +111,8 @@ def run_analysis(payload: AnalyzeRequest) -> dict[str, Any]:
 
 def _run_workflow(payload: ScanRequest) -> WorkflowResponse:
     if payload.scenario:
-        scenario = validate_scenario(payload.scenario)
-        LOGGER.info("Scenario requested for workflow: %s (execution remains external/manual)", scenario["name"])
+        scenario_result = run_scenario(payload.scenario, payload.target)
+        LOGGER.info("Scenario executed for workflow: %s", scenario_result["name"])
     scan_result = run_scan(payload.target, profile=payload.profile)
     storage.save_scan(scan_result)
     previous_scan = storage.get_previous_scan_for_target(scan_result["target"]["input_value"], scan_result["scan_id"])
