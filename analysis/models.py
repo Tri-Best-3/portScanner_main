@@ -28,7 +28,6 @@ class ServiceInfo(AppModel):
     name: str
     product: Optional[str] = None
     version: Optional[str] = None
-    cpe: Optional[str] = None
 
 
 class PortScanResult(AppModel):

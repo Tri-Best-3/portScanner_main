@@ -89,7 +89,6 @@ def run_nmap_scan(target_input: str, profile: str = "common") -> dict[str, objec
                                 "name": port_info.get("name"),
                                 "product": port_info.get("product"),
                                 "version": port_info.get("version"),
-                                "cpe": port_info.get("cpe") or None,
                             },
                         }
                     )
