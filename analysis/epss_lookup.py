@@ -18,7 +18,15 @@ class EpssLookupConfig:
     base_url: str = "https://api.first.org/data/v1/epss"
 
 
-_OFFLINE_EPSS = {"CVE-2021-23017": 0.94, "CVE-2021-41773": 0.97}
+_OFFLINE_EPSS = {
+    "CVE-2021-23017": 0.94,
+    "CVE-2021-41773": 0.97,
+    "CVE-2017-12615": 0.91,
+    "CVE-2017-7494": 0.96,
+    "CVE-2012-2122": 0.72,
+    "CVE-2015-1427": 0.95,
+    "CVE-2011-2523": 0.98,
+}
 
 
 def lookup_epss(

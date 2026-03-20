@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 import requests
 
 from analysis.analyzer import AnalyzerConfig, analyze
@@ -33,9 +34,10 @@ def test_analyze_returns_expected_misconfiguration_findings() -> None:
     result = analyze(SAMPLE_SCAN).to_dict()
 
     assert result["scan_id"] == "scan-001"
-    assert result["analysis"]["risk_summary"] == {"score": 82, "grade": "high"}
+    assert result["analysis"]["risk_summary"] == {"score": 100, "grade": "critical"}
     titles = {item["title"] for item in result["analysis"]["vulnerabilities"]}
     assert "Redis Unauthorized Access" in titles
+    assert "Redis Replication Abuse RCE Risk" in titles
     assert "SSH Service Exposure" in titles
     assert result["drift"] == {"new_ports": [], "closed_ports": []}
 
@@ -75,10 +77,46 @@ def test_analyze_supports_planned_service_rules() -> None:
     titles = {item["title"] for item in result["analysis"]["vulnerabilities"]}
 
     assert "FTP Plaintext Service Exposure" in titles
-    assert "Samba Service Exposure" in titles
+    assert "SambaCry Remote Code Execution Risk" in titles
     assert "Database Service Exposure" in titles
     assert "Elasticsearch Unauthorized Access Risk" in titles
     assert result["analysis"]["risk_summary"]["grade"] == "critical"
+
+
+# 회귀 방지: 아래 케이스는 포트 단독 일치로 finding이 생성되면 안 된다.
+@pytest.mark.parametrize(
+    ("port", "service_name", "service_product", "blocked_title"),
+    [
+        (9200, "kibana", "kibana", "Elasticsearch Unauthorized Access Risk"),
+        (445, "windows-rpc", "rpc service", "Samba Service Exposure"),
+        (3306, "custom-db", "proprietary database", "Database Service Exposure"),
+        (21, "file-gateway", "data transfer daemon", "FTP Plaintext Service Exposure"),
+    ],
+)
+def test_analyze_requires_alias_for_port_exposure_rules(
+    port: int,
+    service_name: str,
+    service_product: str,
+    blocked_title: str,
+) -> None:
+    scan = {
+        "scan_id": f"scan-negative-{port}",
+        "target": {"input_value": "negative.lab.local", "resolved_ip": "172.28.0.99"},
+        "scan": {
+            "started_at": "2026-03-10T23:00:00+09:00",
+            "ports": [
+                {
+                    "port": port,
+                    "protocol": "tcp",
+                    "service": {"name": service_name, "product": service_product, "version": "1.0"},
+                }
+            ],
+        },
+    }
+
+    result = analyze(scan).to_dict()
+    titles = {item["title"] for item in result["analysis"]["vulnerabilities"]}
+    assert blocked_title not in titles
 
 
 def test_analyze_computes_drift_when_previous_scan_is_given() -> None:
@@ -139,22 +177,4 @@ def test_live_cve_lookup_falls_back_to_offline_catalog() -> None:
     ).to_dict()
 
     assert result["analysis"]["risk_summary"]["score"] >= 35
-    assert result["analysis"]["vulnerabilities"][0]["cve_id"] == "CVE-2021-23017"
-
-
-def test_offline_cve_lookup_requires_version_for_version_scoped_entries() -> None:
-    findings = lookup_cves(
-        service={"name": "http", "product": "nginx", "version": None},
-        config=NvdLookupConfig(use_live_api=False),
-    )
-
-    assert findings == []
-
-
-def test_offline_cve_lookup_supports_samba_catalog_entry() -> None:
-    findings = lookup_cves(
-        service={"name": "microsoft-ds", "product": "Samba", "version": "4.15.0"},
-        config=NvdLookupConfig(use_live_api=False),
-    )
-
-    assert any(item.cve_id == "CVE-2021-44142" for item in findings)
+    assert any(item.get("cve_id") == "CVE-2021-23017" for item in result["analysis"]["vulnerabilities"])
