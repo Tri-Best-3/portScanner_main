@@ -165,8 +165,20 @@ def get_verifications(url, scan_id):
         res = requests.get(f"{url}/api/v1/verifications/{scan_id}", timeout=5)
         if res.status_code == 200:
             data = res.json()
-            # 응답이 딕셔너리 형태일 경우 "items" 키 안의 리스트를 안전하게 꺼내옵니다.
-            return data.get("items", []) if isinstance(data, dict) else data
+            
+            # 케이스 A: 백엔드가 리스트를 "items"에 담아줄 때
+            if isinstance(data, dict) and "items" in data:
+                return data["items"]
+                
+            # 케이스 B: 영빈님 데이터처럼 "results" 안에 "service", "risk"로 나뉘어 올 때
+            if isinstance(data, dict) and "results" in data:
+                r = data["results"]
+                return r.get("service", []) + r.get("risk", [])
+                
+            # 케이스 C: 그냥 리스트 자체로 올 때
+            if isinstance(data, list):
+                return data
+                
         return []
     except Exception: return []
 
@@ -279,27 +291,40 @@ def render_dashboard(url, data):
         else: st.success("발견된 취약점이 없습니다.")
 
     with t_verify:
-        st.subheader("자동 검증(PoC) 결과")
+        st.subheader("✅ 자동 검증(PoC) 결과 상세")
         verifications = get_verifications(url, scan_id)
+        
         if verifications:
             for v in verifications:
+                # 데이터가 없으면 에러를 내지 않고 "N/A"나 기본값을 반환 (.get의 위력)
                 v_template = v.get("template_id", "Unknown Template")
                 v_target = v.get("target", "Unknown Target")
                 v_status = v.get("status", "N/A")
                 v_method = v.get("method", "N/A")
+                v_type = v.get("verification_type", "N/A")
+                v_port = v.get("matched_port", "N/A")
                 
-                with st.expander(f"[{v_status.upper()}] {v_template} - {v_target}"):
-                    col_v1, col_v2, col_v3 = st.columns(3)
-                    col_v1.write(f"**검증 방식:** {v_method}")
-                    col_v2.write(f"**상태:** {v_status}")
-                    col_v3.write(f"**시간:** {convert_to_kst(v.get('created_at'))}")
+                expander_title = f"[{v_status.upper()}] {v_template} ({v_type}) ➔ Port: {v_port}"
+                
+                with st.expander(expander_title):
+                    v_col1, v_col2, v_col3 = st.columns(3)
+                    v_col1.write(f"**검증 방식:** {v_method}")
+                    v_col2.write(f"**검증 타입:** `{v_type}`")
+                    v_col3.write(f"**매칭 포트:** `{v_port}`")
                     
-                    st.write("**증거 자료 (Evidence):**")
+                    v_col4, v_col5, v_col6 = st.columns(3)
+                    v_col4.write(f"**검증 상태:** {v_status}")
+                    v_col5.write(f"**대상 타깃:** {v_target}")
+                    v_col6.write(f"**검증 시각:** {convert_to_kst(v.get('created_at'))}")
+                    
+                    st.divider()
+                    st.write("**🔍 증거 자료 (Evidence)**")
                     st.info(v.get("evidence", "기록된 증거가 없습니다."))
                     
-                    if v.get("raw"):
-                        st.write("**Raw Data:**")
-                        st.code(v.get("raw"))
+                    raw_data = v.get("raw_output") or v.get("raw")
+                    if raw_data:
+                        with st.expander("📄 Raw Output 상세보기"):
+                            st.code(raw_data)
         else:
             st.info("이 타깃에 대해 실행된 자동 검증 이력이 없습니다.")
 
