@@ -1,0 +1,15 @@
+[project]
+name = "scanner-module"
+version = "0.1.0"
+description = "Nmap based port scanner for the main project"
+requires-python = ">=3.11"
+dependencies = [
+    "python-nmap>=0.7.1",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+# Python 3.11 이상 환경에서 설치
+# pip install python-nmap
