@@ -9,49 +9,22 @@ st.set_page_config(page_title="Tribest ASM Dashboard", layout="wide")
 st.markdown(
     """
     <style>
-    html {
-        scrollbar-gutter: stable;
-    }
-    [data-testid="stAppViewContainer"] {
-        scrollbar-gutter: stable;
-    }
-    .section-label {
-        font-size: 0.95rem;
-        font-weight: 600;
-        color: #4b5563;
-        margin: 0.25rem 0 0.75rem 0;
-    }
-    .briefing-block-title {
-        font-size: 1rem;
-        font-weight: 700;
-        margin: 0.25rem 0 0.5rem 0;
-    }
-    .briefing-list {
-        font-size: 0.94rem;
-        line-height: 1.75;
-    }
-    .briefing-meta {
-        margin-top: 1rem;
-        margin-bottom: 0.8rem;
-        font-size: 0.84rem;
-        line-height: 1.6;
-        color: #6b7280;
-    }
+    html { scrollbar-gutter: stable; }
+    [data-testid="stAppViewContainer"] { scrollbar-gutter: stable; }
+    .section-label { font-size: 0.95rem; font-weight: 600; color: #4b5563; margin: 0.25rem 0 0.75rem 0; }
+    .briefing-block-title { font-size: 1rem; font-weight: 700; margin: 0.25rem 0 0.5rem 0; }
+    .briefing-list { font-size: 0.94rem; line-height: 1.75; }
+    .briefing-meta { margin-top: 1rem; margin-bottom: 0.8rem; font-size: 0.84rem; line-height: 1.6; color: #6b7280; }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-if "last_scan_data" not in st.session_state:
-    st.session_state["last_scan_data"] = None
-if "scan_queue" not in st.session_state:
-    st.session_state["scan_queue"] = []
-if "batch_results" not in st.session_state:
-    st.session_state["batch_results"] = []
-if "selected_scan_id" not in st.session_state:
-    st.session_state["selected_scan_id"] = None
-if "selected_scan_profile" not in st.session_state:
-    st.session_state["selected_scan_profile"] = "common"
+if "last_scan_data" not in st.session_state: st.session_state["last_scan_data"] = None
+if "scan_queue" not in st.session_state: st.session_state["scan_queue"] = []
+if "batch_results" not in st.session_state: st.session_state["batch_results"] = []
+if "selected_scan_id" not in st.session_state: st.session_state["selected_scan_id"] = None
+if "selected_scan_profile" not in st.session_state: st.session_state["selected_scan_profile"] = "common"
 
 TARGET_CATALOG = [
     {"label": "OWASP Juice Shop", "short_label": "Juice Shop", "target": "juice-shop.lab.local", "ip": "172.28.0.11", "ports": "3000"},
@@ -92,32 +65,37 @@ def get_all_scans(url):
             items = data.get("items", []) if isinstance(data, dict) else data
             return sorted(items, key=lambda x: str(x.get("created_at", "")), reverse=True)
         return []
-    except Exception:
-        return []
+    except Exception: return []
+
+# [신규 기능 2] 시나리오 드롭다운을 위한 API 호출 함수
+@st.cache_data(ttl=60)
+def get_scenarios(url):
+    try:
+        res = requests.get(f"{url}/api/v1/scenarios", timeout=5)
+        if res.status_code == 200:
+            data = res.json()
+            if isinstance(data, list): return data
+            if isinstance(data, dict) and "items" in data: return data["items"]
+    except Exception: pass
+    return []
 
 def get_ollama_models(url, base_url):
     try:
         res = requests.get(f"{url}/api/v1/ai/ollama/models", params={"base_url": base_url}, timeout=5)
         if res.status_code == 200: return res.json()
-    except Exception:
-        pass
+    except Exception: pass
     return {"available": False, "models": [], "error": "backend request failed"}
 
-def get_target_label(target: str) -> str:
-    return TARGET_LABEL_BY_TARGET.get(target, target)
-
-def get_target_short_label(target: str) -> str:
-    return TARGET_SHORT_LABEL_BY_TARGET.get(target, target)
+def get_target_label(target: str) -> str: return TARGET_LABEL_BY_TARGET.get(target, target)
+def get_target_short_label(target: str) -> str: return TARGET_SHORT_LABEL_BY_TARGET.get(target, target)
 
 def get_scan_detail(url, scan_id, *, include_report=True):
     try:
         scan_res = requests.get(f"{url}/api/v1/scans/{scan_id}", timeout=5).json()
         analysis_res = requests.get(f"{url}/api/v1/analyses/{scan_id}", timeout=5).json()
-    except Exception:
-        return None
+    except Exception: return None
     report_payload, report_error = ({}, None)
-    if include_report:
-        report_payload, report_error = get_report_detail(url, scan_id)
+    if include_report: report_payload, report_error = get_report_detail(url, scan_id)
     return {
         "scan_result": scan_res,
         "analysis_result": analysis_res,
@@ -148,7 +126,6 @@ def regenerate_report_detail(url, scan_id, *, narrative_backend="template", gemi
     except Exception as exc: report_error = str(exc)
     return report_payload, report_error
 
-# [기능 4] 검증 레이어 데이터 조회
 def get_verifications(url, scan_id):
     try:
         res = requests.get(f"{url}/api/v1/verifications/{scan_id}", timeout=5)
@@ -184,7 +161,6 @@ def render_dashboard(url, data):
     col3.metric("취약점 수", f"{len(vulns)}개")
     st.caption(f"현재 스캔 ID: {scan_id}")
 
-    # [기능 4] 검증(PoC) 탭 추가
     t_ai, t_ports, t_vulns, t_verify, t_logs, t_json = st.tabs(["🤖 AI 브리핑", "🌐 포트 현황", "🚨 취약점 상세", "✅ 검증(PoC)", "📝 Raw 로그", "🧾 JSON"])
 
     with t_ai:
@@ -229,43 +205,31 @@ def render_dashboard(url, data):
         if vulns: st.dataframe(pd.DataFrame(vulns), use_container_width=True, hide_index=True)
         else: st.success("발견된 취약점이 없습니다.")
 
-    # [기능 4] 검증(PoC) 탭 구현부
+    # [수정된 기능 4] 수동 입력 폼 제거 및 자동 검증 결과 표시 렌더링
     with t_verify:
-        st.subheader("검증 이력")
+        st.subheader("자동 검증(PoC) 결과")
         verifications = get_verifications(url, scan_id)
         if verifications:
-            st.dataframe(pd.DataFrame(verifications), use_container_width=True, hide_index=True)
+            for v in verifications:
+                v_template = v.get("template_id", "Unknown Template")
+                v_target = v.get("target", "Unknown Target")
+                v_status = v.get("status", "N/A")
+                v_method = v.get("method", "N/A")
+                
+                with st.expander(f"[{v_status.upper()}] {v_template} - {v_target}"):
+                    col_v1, col_v2, col_v3 = st.columns(3)
+                    col_v1.write(f"**검증 방식:** {v_method}")
+                    col_v2.write(f"**상태:** {v_status}")
+                    col_v3.write(f"**시간:** {convert_to_kst(v.get('created_at'))}")
+                    
+                    st.write("**증거 자료 (Evidence):**")
+                    st.info(v.get("evidence", "기록된 증거가 없습니다."))
+                    
+                    if v.get("raw"):
+                        st.write("**Raw Data:**")
+                        st.code(v.get("raw"))
         else:
-            st.info("등록된 검증 이력이 없습니다.")
-
-        st.divider()
-        st.subheader("새로운 검증 결과 등록")
-        with st.form(key=f"verify_form_{scan_id}"):
-            v_template_id = st.text_input("Template ID (예: tomcat-cve-2017-12615)")
-            v_method = st.selectbox("검증 방식 (Method)", ["manual-curl", "nuclei", "metasploit", "other"])
-            v_status = st.selectbox("검증 상태 (Status)", ["confirmed", "false-positive"])
-            v_target = st.text_input("검증 타깃 (Target URL / IP)", placeholder="http://juice-shop.lab.local:3000")
-            v_evidence = st.text_area("증거 자료 (Evidence)", placeholder="manual curl reproduced expected response")
-            submit_btn = st.form_submit_button("저장하기")
-
-            if submit_btn:
-                payload = {
-                    "scan_id": scan_id,
-                    "template_id": v_template_id,
-                    "method": v_method,
-                    "status": v_status,
-                    "target": v_target,
-                    "evidence": v_evidence
-                }
-                try:
-                    v_res = requests.post(f"{url}/api/v1/verifications", json=payload)
-                    if v_res.status_code in [200, 201]:
-                        st.success("✅ 검증 결과가 성공적으로 저장되었습니다.")
-                        st.rerun()
-                    else:
-                        st.error(f"저장 실패 ({v_res.status_code})")
-                except Exception as e:
-                    st.error(f"에러 발생: {e}")
+            st.info("이 타깃에 대해 실행된 자동 검증 이력이 없습니다.")
 
     with t_logs:
         for log in scan_res.get("scan", {}).get("logs", []):
@@ -326,39 +290,31 @@ if scans_list:
 
 st.title("Tribest ASM Dashboard")
 
-# [기능 3] 대역 기반 자산 스캔 (Inventory Drift)
+# [수정된 기능 3] 대역 기반 자산 스캔 -> 조회 후 큐(Queue)에 추가되도록 수정 (Expander 오류 픽스)
 with st.expander("🌐 대역 기반 자산 스캔 (Inventory Drift)", expanded=False):
     inv_col1, inv_col2 = st.columns([3, 1])
     scope_input = inv_col1.text_input("IP 대역 (Scope)", value="172.28.0.0/29")
-    inv_profile = inv_col2.selectbox("스캔 프로필", list(SCAN_PROFILES.keys()), key="inv_profile_select")
+    inv_profile = inv_col2.selectbox("대역 스캔용 프로필", list(SCAN_PROFILES.keys()), key="inv_profile_select")
     
-    if st.button("대역 스캔 시작", type="primary", use_container_width=True):
-        with st.spinner(f"[{scope_input}] 대역 스캔 및 변화 분석 중..."):
+    if st.button("대역 탐색 및 대기 목록에 추가", type="primary", use_container_width=True):
+        with st.spinner(f"[{scope_input}] 대역 내 활성 호스트 탐색 중..."):
             try:
                 res = requests.post(f"{backend_url}/api/v1/inventories/run", json={"scope": scope_input, "profile": inv_profile}, timeout=300)
                 if res.status_code == 200:
                     inv_data = res.json()
-                    st.success("✅ 대역 스캔 완료")
-                    c1, c2, c3, c4 = st.columns(4)
-                    c1.metric("발견된 호스트 수", len(inv_data.get("hosts", [])))
+                    discovered_hosts = inv_data.get("hosts", [])
                     
-                    drift_data = inv_data.get("drift", {})
-                    new_h = drift_data.get("new_hosts", [])
-                    missing_h = drift_data.get("missing_hosts", [])
-                    changed_h = drift_data.get("changed_hosts", [])
-                    
-                    c2.metric("🆕 신규 IP", len(new_h), delta=len(new_h), delta_color="normal")
-                    c3.metric("🚫 유실 IP", len(missing_h), delta=-len(missing_h), delta_color="inverse")
-                    c4.metric("🔄 변경 IP", len(changed_h), delta=len(changed_h), delta_color="off")
-                    
-                    if new_h: st.info(f"신규 발견 호스트: {', '.join(new_h)}")
-                    if missing_h: st.error(f"응답 없는 호스트: {', '.join(missing_h)}")
-                    if changed_h: st.warning(f"상태 변경 호스트: {', '.join(changed_h)}")
-                    
-                    with st.expander("상세 JSON 데이터"):
-                        st.json(inv_data)
+                    if discovered_hosts:
+                        added_count = 0
+                        for h in discovered_hosts:
+                            if h not in st.session_state["scan_queue"]:
+                                st.session_state["scan_queue"].append(h)
+                                added_count += 1
+                        st.success(f"✅ {added_count}개의 활성 호스트를 🚀 스캔 대기 목록에 추가했습니다! (아래에서 스캔을 시작해 주세요)")
+                    else:
+                        st.warning("이 대역에서 발견된 활성 호스트가 없습니다.")
                 else:
-                    st.error(f"❌ 스캔 실패 (상태 코드: {res.status_code})")
+                    st.error(f"❌ 탐색 실패 (상태 코드: {res.status_code})")
             except Exception as e:
                 st.error(f"서버 통신 에러: {e}")
 
@@ -371,8 +327,15 @@ with st.expander("🚀 타깃 스캔 실행 (단일/병렬)", expanded=True):
     profile = scan_col1.selectbox("포트 스캔 프로필", list(SCAN_PROFILES.keys()), index=list(SCAN_PROFILES.keys()).index(st.session_state["selected_scan_profile"]))
     st.session_state["selected_scan_profile"] = profile
     
-    # [기능 2] 시나리오 선택 (Optional)
-    scenario_input = scan_col2.text_input("시나리오 (선택)", placeholder="예: redis_drift")
+    # [수정된 기능 2] 시나리오 드롭다운 API 연동
+    scenarios_list = get_scenarios(backend_url)
+    scenario_options = ["선택 안 함"]
+    for s in scenarios_list:
+        if isinstance(s, dict): scenario_options.append(str(s.get("id") or s.get("name") or s))
+        else: scenario_options.append(str(s))
+        
+    selected_scenario = scan_col2.selectbox("시나리오 선택", scenario_options)
+    final_scenario = None if selected_scenario == "선택 안 함" else selected_scenario
 
     header_col1, header_col2, header_col3 = st.columns([2, 2, 1])
     header_col1.write("타깃 선택")
@@ -421,9 +384,7 @@ with st.expander("🚀 타깃 스캔 실행 (단일/병렬)", expanded=True):
             st.warning("타겟을 선택하세요.")
         else:
             completed_results = []
-            final_scenario = scenario_input.strip() if scenario_input.strip() else None
 
-            # [기능 1] 병렬 스캔 (타깃이 2개 이상일 때 run-batch 호출)
             if len(targets_to_run) > 1:
                 with st.spinner(f"{len(targets_to_run)}개 타깃 병렬 스캔 중..."):
                     try:
@@ -451,7 +412,6 @@ with st.expander("🚀 타깃 스캔 실행 (단일/병렬)", expanded=True):
                     except Exception as e:
                         st.error(f"Error: {e}")
             else:
-                # 단일 스캔 로직 (시나리오 추가)
                 target = targets_to_run[0]
                 with st.spinner(f"[{target}] 분석 중..."):
                     try:
