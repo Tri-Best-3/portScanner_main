@@ -288,7 +288,9 @@ def render_dashboard(url, data):
                 v_status = v.get("status", "N/A")
                 v_method = v.get("method", "N/A")
                 
-                with st.expander(f"[{v_status.upper()}] {v_template} - {v_target}"):
+                icon_status = "🟢" if v_status == "verified" else "🟡" if v_status == "suspected" else "🔴"
+
+                with st.expander(f"[{icon_status} {v_status.upper()}] {v_template} - {v_target}"):
                     col_v1, col_v2, col_v3 = st.columns(3)
                     col_v1.write(f"**검증 방식:** {v_method}")
                     col_v2.write(f"**상태:** {v_status}")
