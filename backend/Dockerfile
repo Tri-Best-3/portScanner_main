@@ -9,11 +9,14 @@ WORKDIR /app
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
+        bash \
         nmap \
         curl \
         unzip \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+COPY --from=docker:27-cli /usr/local/bin/docker /usr/local/bin/docker
 
 RUN curl -fsSL "https://github.com/projectdiscovery/nuclei/releases/download/v${NUCLEI_VERSION}/nuclei_${NUCLEI_VERSION}_linux_amd64.zip" -o /tmp/nuclei.zip \
     && unzip /tmp/nuclei.zip -d /tmp/nuclei \
