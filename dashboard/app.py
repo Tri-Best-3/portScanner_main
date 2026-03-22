@@ -304,7 +304,9 @@ def render_dashboard(url, data):
                 v_type = v.get("verification_type", "N/A")
                 v_port = v.get("matched_port", "N/A")
                 
-                expander_title = f"[{v_status.upper()}] {v_template} ({v_type}) ➔ Port: {v_port}"
+                icon_status = "🟢" if v_status == "verified" else "🟡" if v_status == "suspected" else "🔴"
+
+                expander_title = f"[{icon_status} {v_status.upper()}] {v_template} ({v_type}) ➔ Port: {v_port}"
                 
                 with st.expander(expander_title):
                     v_col1, v_col2, v_col3 = st.columns(3)
@@ -323,8 +325,8 @@ def render_dashboard(url, data):
                     
                     raw_data = v.get("raw_output") or v.get("raw")
                     if raw_data:
-                        with st.expander("📄 Raw Output 상세보기"):
-                            st.code(raw_data)
+                        if st.toggle("**📄 Raw Output 상세보기**", key=f"toggle_raw_{v_template}"):
+                            st.code(raw_data, language="json")
         else:
             st.info("이 타깃에 대해 실행된 자동 검증 이력이 없습니다.")
 
