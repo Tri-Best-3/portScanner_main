@@ -74,17 +74,23 @@ def run_inventory_scan(scope: str, profile: str = "common", max_workers: int = 5
     }
 
 def run_nmap_scan(target: str, profile: str = "common") -> dict[str, object]:
-    """기존 단일 타겟 스캔 유지용"""
+    """기존 단일 타겟 스캔 유지용 (백엔드 호환성 수정)"""
     started_at = datetime.now(timezone.utc).astimezone()
     res = scan_single_host(target, profile)
     
-    # 기존 상세 로그 포맷 유지 (필요시)
+    # 중요: 백엔드(ScanResult 모델)는 'scan.ports' 필드를 필수로 요구함
     return {
         "scan_id": f"scan-{uuid4().hex[:8]}",
-        "target": {"input_value": target, "resolved_ip": res["ip"]},
+        "target": {
+            "input_value": target, 
+            "resolved_ip": res["ip"]
+        },
         "scan": {
             "started_at": started_at.isoformat(),
             "status": res["status"],
-            "open_ports": res["open_ports"]
+            # 'open_ports'를 'ports'로 이름을 변경하고, 
+            # 기존 모델이 기대하는 [ {"port": 80}, ... ] 구조로 변환
+            "ports": [{"port": p} for p in res["open_ports"]], 
+            "logs": [] # 필요하다면 빈 리스트라도 넣어주세요
         }
     }
