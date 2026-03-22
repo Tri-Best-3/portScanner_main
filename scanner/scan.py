@@ -7,30 +7,14 @@ actual implementation without changing the backend contract.
 
 from __future__ import annotations
 from typing import Literal
+from scanner.nmap_scan import run_nmap_scan, run_inventory_scan as nmap_inventory_scan
 
-from scanner.nmap_scan import run_nmap_scan
-
-Profile = Literal["quick", "common", "deep", "full", "web"]
-
-def run_scan(target: str, profile: Profile = "common") -> dict[str, object]:
-    """메인 프로젝트 계약에 맞는 JSON을 반환하는 실행 함수"""
-    return run_nmap_scan(target, profile=profile)
-
-"""Scanner module entrypoint."""
-
-from __future__ import annotations
-from typing import Literal
-from scanner.nmap_scan import run_nmap_scan, run_inventory_scan
-
-Profile = Literal["quick", "common", "deep", "full", "web"]
+Profile = Literal["quick", "common", "full", "web", "redis"]
 
 def run_scan(target: str, profile: Profile = "common") -> dict[str, object]:
-    """기존 단일 타겟 스캔: 상세 리포트 반환용"""
+    """기존 단일 타겟 스캔 유지"""
     return run_nmap_scan(target, profile=profile)
 
 def run_inventory_scan(scope: str, profile: Profile = "common") -> dict[str, object]:
-    """
-    대역/CIDR 스캔: 인벤토리 관리 및 변화(Drift) 감지용
-    반환 예시: {"hosts": [{"ip": "...", "status": "up", "open_ports": [...]}, ...]}
-    """
-    return run_inventory_scan(scope, profile=profile)
+    """대역/CIDR 병렬 스캔 및 인벤토리 구조 반환"""
+    return nmap_inventory_scan(scope, profile=profile)

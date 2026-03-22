@@ -1,67 +1,62 @@
 from __future__ import annotations
 
-import json
-import re
-import socket
+import nmap
 from datetime import datetime, timezone
 from uuid import uuid4
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-import nmap
-
-# 기존 TARGET_IPS 및 PROFILE_CONFIG는 유지 (생략)
-TARGET_IPS = { ... } 
-PROFILE_CONFIG = { ... }
-
-def is_ip_or_range(address: str) -> bool:
-    """IP, CIDR(192.168.1.0/24), Range(10.0.0.1-10) 형식인지 확인"""
-    # 간단한 정규식: 숫자, 점, 슬래시, 대시가 포함된 패턴
-    range_pattern = re.compile(r"^[0-9./-]+$")
-    return bool(range_pattern.match(address))
+# 스캔 프로필 설정
+PROFILE_CONFIG = {
+    "common": {"ports": "21,22,23,25,53,80,110,111,135,139,143,443,445,3306,3389,8080", "args": "-sV -T4"},
+    "quick": {"ports": "80,443,22", "args": "-F -T5"},
+    "full": {"ports": "1-65535", "args": "-sV -T4"},
+    "redis": {"ports": "6379,22", "args": "-sV"},
+    "web": {"ports": "80,443,8080,8443", "args": "-sV"}
+}
 
 def scan_single_host(ip: str, profile: str = "common") -> dict[str, object]:
-    """단일 호스트에 대한 포트 스캔 수행 (병렬 처리에 사용)"""
+    """단일 호스트 상세 포트 스캔 (병렬 작업 단위)"""
     config = PROFILE_CONFIG.get(profile, PROFILE_CONFIG["common"])
     nm = nmap.PortScanner()
     
     try:
-        # -sn(Ping Scan) 대신 포트 스캔을 바로 수행하여 Open 포트 확인
-        nm.scan(ip, config["ports"], config["args"])
+        # -Pn: Discovery 생략(이미 살아있음을 확인했으므로), 빠른 포트 스캔
+        nm.scan(ip, config["ports"], f"{config['args']} -Pn")
         
         if ip not in nm.all_hosts():
             return {"ip": ip, "status": "down", "open_ports": []}
 
         open_ports = []
         for proto in nm[ip].all_protocols():
-            for port in sorted(nm[ip][proto].keys()):
+            lport = nm[ip][proto].keys()
+            for port in sorted(lport):
                 if nm[ip][proto][port]["state"] == "open":
                     open_ports.append(int(port))
         
         return {
             "ip": ip,
             "status": "up",
-            "open_ports": open_ports,
-            "hostname": nm[ip].hostname(),
-            "vendor": nm[ip].get("vendor", {})
+            "open_ports": open_ports
         }
-    except Exception:
-        return {"ip": ip, "status": "error", "open_ports": []}
+    except Exception as e:
+        return {"ip": ip, "status": "error", "open_ports": [], "error_msg": str(e)}
 
-def run_inventory_scan(scope: str, profile: str = "common", max_workers: int = 10) -> dict[str, object]:
+def run_inventory_scan(scope: str, profile: str = "common", max_workers: int = 50) -> dict[str, object]:
     """
-    대역 스캔 및 병렬 포트 스캔 수행
-    1. Host Discovery 우선 수행
-    2. 발견된 Host들에 대해 병렬 포트 스캔
+    대역 스캔 구현 (CIDR, Range 지원)
+    1. Host Discovery (-sn) 수행
+    2. 활성 Host 대상 병렬 포트 스캔
     """
     nm = nmap.PortScanner()
-    # 1. Host Discovery (-sn: Ping Scan)
-    print(f"[*] Discovering hosts in scope: {scope}...")
+    
+    # 1단계: Host Discovery (어떤 IP가 살아있는지 확인)
+    # Nmap은 내부적으로 CIDR(192.168.0.0/24) 및 Range(10.0.0.1-20)를 지원함
     nm.scan(hosts=scope, arguments="-sn")
     live_hosts = nm.all_hosts()
-
+    
     results = []
     
-    # 2. 병렬 포트 스캔 (ThreadPoolExecutor)
+    # 2단계: ThreadPoolExecutor를 통한 병렬 포트 스캔
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_ip = {executor.submit(scan_single_host, ip, profile): ip for ip in live_hosts}
         
@@ -69,18 +64,27 @@ def run_inventory_scan(scope: str, profile: str = "common", max_workers: int = 1
             try:
                 data = future.result()
                 results.append(data)
-            except Exception as exc:
+            except Exception:
                 ip = future_to_ip[future]
-                print(f"[!] {ip} scan generated an exception: {exc}")
+                results.append({"ip": ip, "status": "error", "open_ports": []})
 
+    # 요구사항에 따른 반환 구조 (IP 순 정렬)
     return {
-        "scan_id": f"inv-{uuid4().hex[:8]}",
-        "scope": scope,
-        "timestamp": datetime.now(timezone.utc).astimezone().isoformat(),
-        "hosts": results
+        "hosts": sorted(results, key=lambda x: x["ip"])
     }
 
-def run_nmap_scan(target_input: str, profile: str = "common") -> dict[str, object]:
-    """기존 단일 타겟 스캔 (호환성 유지용)"""
-    # ... (기존 로직과 동일하되, 내부에서 scan_single_host를 호출하도록 리팩토링 가능)
-    # 생략: 기존 반환 형식을 유지해야 하므로 그대로 두거나 내부 로직만 최적화
+def run_nmap_scan(target: str, profile: str = "common") -> dict[str, object]:
+    """기존 단일 타겟 스캔 유지용"""
+    started_at = datetime.now(timezone.utc).astimezone()
+    res = scan_single_host(target, profile)
+    
+    # 기존 상세 로그 포맷 유지 (필요시)
+    return {
+        "scan_id": f"scan-{uuid4().hex[:8]}",
+        "target": {"input_value": target, "resolved_ip": res["ip"]},
+        "scan": {
+            "started_at": started_at.isoformat(),
+            "status": res["status"],
+            "open_ports": res["open_ports"]
+        }
+    }
