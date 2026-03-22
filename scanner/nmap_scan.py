@@ -15,75 +15,80 @@ PROFILE_CONFIG = {
 }
 
 def scan_single_host(ip: str, profile: str = "common") -> dict[str, object]:
+    """단일 호스트 상세 스캔 (서비스 정보 포함)"""
     config = PROFILE_CONFIG.get(profile, PROFILE_CONFIG["common"])
     nm = nmap.PortScanner()
     
     try:
-        nm.scan(ip, config["ports"], f"{config['args']} -Pn")
+        # -Pn: Ping 생략 (방화벽 우회 및 속도), -sV: 서비스 버전 탐지
+        arguments = f"{config.get('args', '-sV')} -Pn"
+        nm.scan(ip, config["ports"], arguments)
         
         if ip not in nm.all_hosts():
-            return {"ip": ip, "status": "down", "ports": []}
+            return {"ip": ip, "status": "down", "ports": [], "open_ports": []}
 
         detailed_ports = []
+        raw_open_ports = []
+        
         for proto in nm[ip].all_protocols():
             lport = nm[ip][proto].keys()
             for port in sorted(lport):
                 if nm[ip][proto][port]["state"] == "open":
-                    # 핵심: 대시보드가 보여줄 서비스 정보를 추출합니다.
-                    port_info = nm[ip][proto][port]
+                    p_info = nm[ip][proto][port]
+                    port_int = int(port)
+                    raw_open_ports.append(port_int)
                     detailed_ports.append({
-                        "port": int(port),
+                        "port": port_int,
                         "protocol": proto,
                         "service": {
-                            "name": port_info.get("name", "unknown"),
-                            "product": port_info.get("product", ""),
-                            "version": port_info.get("version", "")
+                            "name": p_info.get("name", "unknown"),
+                            "product": p_info.get("product", ""),
+                            "version": p_info.get("version", "")
                         }
                     })
         
         return {
             "ip": ip,
             "status": "up",
-            "ports": detailed_ports # 'open_ports' 대신 'ports'로 통일
+            "ports": detailed_ports,
+            "open_ports": raw_open_ports
         }
-    except Exception as e:
-        return {"ip": ip, "status": "error", "ports": [], "error_msg": str(e)}
-    
-def run_inventory_scan(scope: str, profile: str = "common", max_workers: int = 50) -> dict[str, object]:
+    except Exception:
+        return {"ip": ip, "status": "error", "ports": [], "open_ports": []}
+
+def run_inventory_scan(scope: str, profile: str = "common", max_workers: int = 20) -> dict[str, object]:
     """
-    대역 스캔 구현 (CIDR, Range 지원)
-    1. Host Discovery (-sn) 수행
-    2. 활성 Host 대상 병렬 포트 스캔
+    [요구사항 구현] 대역 병렬 스캔
+    반환 형식: {"hosts": [{"ip":..., "status":..., "open_ports": [...]}]}
     """
     nm = nmap.PortScanner()
-    
-    # 1단계: Host Discovery (어떤 IP가 살아있는지 확인)
-    # Nmap은 내부적으로 CIDR(192.168.0.0/24) 및 Range(10.0.0.1-20)를 지원함
+    # 1단계: Host Discovery (Ping 스캔으로 살아있는 IP만 추출)
     nm.scan(hosts=scope, arguments="-sn")
     live_hosts = nm.all_hosts()
     
     results = []
-    
-    # 2단계: ThreadPoolExecutor를 통한 병렬 포트 스캔
+    # 2단계: ThreadPoolExecutor로 병렬 상세 스캔 실행
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_ip = {executor.submit(scan_single_host, ip, profile): ip for ip in live_hosts}
         
         for future in as_completed(future_to_ip):
             try:
                 data = future.result()
-                results.append(data)
+                # 팀원 요청 형식에 맞춰 필드 필터링
+                results.append({
+                    "ip": data["ip"],
+                    "status": data["status"],
+                    "open_ports": data["open_ports"]
+                })
             except Exception:
-                ip = future_to_ip[future]
-                results.append({"ip": ip, "status": "error", "open_ports": []})
+                pass
 
-    # 요구사항에 따른 반환 구조 (IP 순 정렬)
-    return {
-        "hosts": sorted(results, key=lambda x: x["ip"])
-    }
+    return {"hosts": sorted(results, key=lambda x: x["ip"])}
 
 def run_nmap_scan(target: str, profile: str = "common") -> dict[str, object]:
+    """기존 단일 타겟 스캔 (기존 백엔드/대시보드 호환용)"""
     started_at = datetime.now(timezone.utc).astimezone()
-    res = scan_single_host(target, profile) # 여기서 이미 detailed_ports를 받아옴
+    res = scan_single_host(target, profile)
     
     return {
         "scan_id": f"scan-{uuid4().hex[:8]}",
@@ -91,7 +96,7 @@ def run_nmap_scan(target: str, profile: str = "common") -> dict[str, object]:
         "scan": {
             "started_at": started_at.isoformat(),
             "status": res["status"],
-            "ports": res["ports"], # 상세 정보가 포함된 리스트
+            "ports": res["ports"],
             "logs": []
         }
     }
